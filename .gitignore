@@ -50,6 +50,22 @@ Thumbs.db
 
 # Python
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+credentials.*
+secrets.*
+*.token
+*.password
+*.pem
+*.key
+id_rsa
+id_ed25519
+*.p12
+*.pfx
