@@ -1,0 +1,1 @@
+- [CloudOps phased scope](cloudops-phased-scope.md) — keep the initial API separate from infrastructure and automation planned for later phases.
