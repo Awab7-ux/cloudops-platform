@@ -130,19 +130,39 @@ run.
 
 Build the image from the project directory:
 
-```powershell
-docker build -t cloudops-platform .
+```bash
+docker build -t cloudops-platform:local .
 ```
 
-Run it locally:
+Run it locally (custom version via an environment variable):
 
-```powershell
-docker run --rm -p 8000:8000 -e APP_VERSION=1.0.0 cloudops-platform
+```bash
+docker run -d --name cloudops-test -p 8000:8000 -e APP_VERSION=1.0.0-local cloudops-platform:local
 ```
 
-The image installs runtime dependencies only and starts Uvicorn on port `8000`
-by default. Override the container port with `PORT` if needed, and publish that
-same container port with Docker's `-p` option.
+Test the endpoints:
 
-Docker commands are provided as setup guidance; whether the image builds or runs
-depends on the local Docker installation and has not been asserted here.
+```bash
+curl http://localhost:8000/
+curl http://localhost:8000/health
+curl http://localhost:8000/version
+```
+
+Stop and remove the container:
+
+```bash
+docker rm -f cloudops-test
+```
+
+The container starts Uvicorn on port `8000` by default. The Dockerfile reads
+`PORT` for the listening port; if you change it, publish the same container
+port with `-p`.
+
+### Verified locally
+
+Tested on Windows 11 with Docker Desktop:
+
+- The image builds successfully from `python:3.12-slim`.
+- `GET /`, `GET /health` and `GET /version` return the expected JSON.
+- `APP_VERSION` is read from the environment; without it, `/version` returns the default `0.1.0`.
+- The container runs as a non-root user (`uid=10001`, `appuser`).
