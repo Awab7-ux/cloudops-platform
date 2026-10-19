@@ -69,3 +69,10 @@ id_rsa
 id_ed25519
 *.p12
 *.pfx
+
+# Replit / Node template files
+.replit
+.replitignore
+replit.md
+.agents/
+node_modules/
