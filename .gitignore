@@ -76,3 +76,14 @@ id_ed25519
 replit.md
 .agents/
 node_modules/
+
+# Node template files (not part of this project)
+/artifacts/
+/lib/
+/scripts/
+/package.json
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+/tsconfig.base.json
+/tsconfig.json
+/.npmrc
