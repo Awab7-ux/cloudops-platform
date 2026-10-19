@@ -1,9 +1,9 @@
 # CloudOps Platform
 
 CloudOps Platform is a small, container-ready REST API built with Python and
-FastAPI. This first phase establishes a tested service foundation for later
-infrastructure and observability work. It does not include cloud provisioning,
-Kubernetes, Terraform, or CI/CD.
+FastAPI. This phase establishes a tested service foundation and adds a GitHub
+Actions workflow for automated tests. It does not include cloud provisioning,
+Kubernetes, or Terraform.
 
 ## Architecture
 
@@ -108,6 +108,23 @@ python -m pytest -q
 
 The tests check the response bodies, JSON content type, success status codes,
 environment-based configuration, and the not-found status for an unknown route.
+
+## GitHub Actions CI
+
+The workflow at `.github/workflows/ci.yml` runs on pushes to `main` and on pull
+requests targeting `main`. It uses Ubuntu and Python 3.12, creates a project-local
+`.venv`, installs `requirements-dev.txt` (which includes `requirements.txt`),
+and runs the same command used locally:
+
+```bash
+python -m pytest -q
+```
+
+The workflow grants only `contents: read` and requires no secrets or paid
+services. Dependency installation and test failures fail the job. To see a
+GitHub Actions result, push a commit or open a pull request and check the
+repository's **Actions** tab; a passing local test run is not a GitHub Actions
+run.
 
 ## Docker
 
