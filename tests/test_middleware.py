@@ -224,3 +224,44 @@ class TestUnexpectedErrorShape:
             == "http://localhost:3000"
         )
 
+    def test_500_body_does_not_contain_exception_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The 500 response body must not leak the exception message."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        @test_app.get("/trigger-error")
+        def _raise() -> None:
+            raise RuntimeError("boom")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        response = client.get("/trigger-error")
+
+        assert response.status_code == 500
+        # WHY "boom": the test route raises RuntimeError("boom"); it
+        # must never appear in the response body sent to the client.
+        assert "boom" not in response.text
+
+    def test_500_unknown_origin_has_no_cors_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 500 response for an unknown origin has no CORS allow header."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        @test_app.get("/trigger-error")
+        def _raise() -> None:
+            raise RuntimeError("boom")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        response = client.get(
+            "/trigger-error",
+            headers={"Origin": "http://evil.example.com"},
+        )
+
+        assert response.status_code == 500
+        # WHY assert absence: an unknown origin must never receive
+        # access-control-allow-origin, even on error responses.
+        assert "access-control-allow-origin" not in response.headers
+

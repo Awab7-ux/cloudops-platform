@@ -46,12 +46,16 @@ def create_app() -> FastAPI:
 
     **Middleware ordering** (outermost → innermost):
 
-    1. ``RequestIdMiddleware`` — assigns/validates ``X-Request-ID``,
-       logs method, path, status code, and duration.
-    2. ``CORSMiddleware`` — enforces the origin allow-list with a
+    1. ``CORSMiddleware`` — enforces the origin allow-list with a
        GET-only, no-credentials policy.
+    2. ``RequestIdMiddleware`` — assigns/validates ``X-Request-ID``,
+       logs method, path, status code, and duration, and acts as the
+       error boundary for unhandled exceptions.
 
-    Both layers wrap the exception handler, so ``X-Request-ID`` **and**
+    The error boundary in ``RequestIdMiddleware`` catches unhandled
+    exceptions and returns a safe 500 JSON response *inside* the
+    middleware stack, so the response passes back through
+    ``CORSMiddleware``.  This guarantees that ``X-Request-ID`` **and**
     CORS headers are present even on 500 responses.
 
     Returns:
@@ -77,9 +81,21 @@ def create_app() -> FastAPI:
     application.include_router(system_router)
 
     # --- Middleware (added bottom-up; last add_middleware = outermost) ---
+    # WHY this order: Starlette makes the *last* ``add_middleware``
+    # call the outermost layer.  CORSMiddleware must be outermost so
+    # that CORS headers are added to every response — including the
+    # safe 500s produced by the error boundary inside
+    # RequestIdMiddleware.
 
-    # CORS: allow only the configured origins, only GET, never send
-    # credentials.  Wildcard "*" is already rejected by build_settings().
+    # Request-ID + access-log + error boundary: catches unhandled
+    # exceptions inside the stack so the 500 response travels back
+    # through CORSMiddleware and gets both X-Request-ID and CORS
+    # headers.
+    application.add_middleware(RequestIdMiddleware)
+
+    # CORS: outermost layer — allow only the configured origins, only
+    # GET, never send credentials.  Wildcard "*" is already rejected
+    # by build_settings().
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -91,12 +107,8 @@ def create_app() -> FastAPI:
         allow_headers=[],
     )
 
-    # Request-ID + access-log: outermost so that every response
-    # (including CORS errors and 500s) gets the header and is logged.
-    application.add_middleware(RequestIdMiddleware)
-
     logger.info(
-        "Application started: name=%s version=%s log_level=%s "
+        "Application started: name=%s, version=%s, log_level=%s, "
         "cors_origins=%s",
         settings.app_name,
         settings.app_version,

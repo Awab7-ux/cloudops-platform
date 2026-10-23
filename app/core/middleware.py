@@ -1,4 +1,4 @@
-"""Request-lifecycle middleware: ID assignment and request logging.
+"""Request-lifecycle middleware: ID assignment, request logging, and error boundary.
 
 Implemented as a pure ASGI middleware (not ``BaseHTTPMiddleware``) to
 avoid known context-variable propagation issues in older Starlette
@@ -15,6 +15,7 @@ import uuid
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.errors import build_error_response
 from app.core.logging import request_id_ctx
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ def _sanitize_request_id(raw: str | None) -> str:
 
 
 class RequestIdMiddleware:
-    """Pure ASGI middleware for request-ID propagation and access logging.
+    """Pure ASGI middleware for request-ID propagation, access logging,
+    and an error boundary for unhandled exceptions.
 
     For every HTTP request the middleware:
 
@@ -53,8 +55,18 @@ class RequestIdMiddleware:
        UUID4 if the header is missing or invalid.
     3. Stores the ID in ``request_id_ctx`` (a ``ContextVar``) so the
        log formatter can include it automatically.
-    4. Injects ``X-Request-ID`` into the response headers.
-    5. Logs method, path, status code, and duration in milliseconds.
+    4. Catches any unhandled exception from the inner app and returns
+       a safe 500 JSON response (error boundary).
+    5. Injects ``X-Request-ID`` into the response headers.
+    6. Logs method, path, status code, and duration in milliseconds.
+
+    WHY the error boundary lives here: the global ``Exception`` handler
+    registered on the FastAPI app is executed by Starlette's
+    ``ServerErrorMiddleware`` — the outermost ASGI layer — so its 500
+    response bypasses every ``add_middleware`` layer.  Catching the
+    exception here (inside the middleware stack) ensures the response
+    travels back through ``CORSMiddleware`` and gets the
+    ``X-Request-ID`` header from this middleware.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -101,14 +113,20 @@ class RequestIdMiddleware:
         # a server error.
         status_code = 500
 
+        # WHY track ``response_started``: once the first
+        # ``http.response.start`` has been sent we cannot replace the
+        # response, so the error boundary must not try.
+        response_started = False
+
         async def send_with_request_id(message: Message) -> None:
             """Intercept the response-start message to inject headers.
 
             Args:
                 message: The ASGI send message.
             """
-            nonlocal status_code
+            nonlocal status_code, response_started
             if message["type"] == "http.response.start":
+                response_started = True
                 status_code = message["status"]
                 headers = MutableHeaders(scope=message)
                 headers.append("x-request-id", request_id)
@@ -116,6 +134,30 @@ class RequestIdMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
+        except Exception:
+            # WHY catch here: ensures the 500 response passes back
+            # through CORSMiddleware (which wraps this middleware) so
+            # CORS and X-Request-ID headers are always present.
+            if not response_started:
+                logger.exception(
+                    "Unhandled exception on %s %s [request_id=%s]",
+                    method,
+                    path,
+                    request_id,
+                )
+                # Build the safe JSON response, inject request-ID,
+                # and send it through the normal ASGI channel.
+                error_response = build_error_response()
+                await error_response(scope, receive, send_with_request_id)
+            else:
+                # Response already started — nothing we can do but log.
+                logger.exception(
+                    "Exception after response started on %s %s "
+                    "[request_id=%s]",
+                    method,
+                    path,
+                    request_id,
+                )
         finally:
             duration_ms = (time.perf_counter() - start) * 1000
             # Logs every request including 500s so that no failure is
