@@ -150,7 +150,11 @@ class RequestIdMiddleware:
                 error_response = build_error_response()
                 await error_response(scope, receive, send_with_request_id)
             else:
-                # Response already started — nothing we can do but log.
+                # Response already started — the status line and headers
+                # have been sent so the response cannot be replaced. Log
+                # the failure and re-raise so the ASGI server can close
+                # the connection cleanly instead of silently swallowing
+                # the error.
                 logger.exception(
                     "Exception after response started on %s %s "
                     "[request_id=%s]",
@@ -158,6 +162,7 @@ class RequestIdMiddleware:
                     path,
                     request_id,
                 )
+                raise
         finally:
             duration_ms = (time.perf_counter() - start) * 1000
             # Logs every request including 500s so that no failure is
