@@ -7,11 +7,14 @@ exceptions.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
+from starlette.types import Receive, Scope, Send
 from fastapi.testclient import TestClient
 
+from app.core.middleware import RequestIdMiddleware
 from app.main import create_app
 
 
@@ -264,4 +267,77 @@ class TestUnexpectedErrorShape:
         # WHY assert absence: an unknown origin must never receive
         # access-control-allow-origin, even on error responses.
         assert "access-control-allow-origin" not in response.headers
+
+
+# ── Error boundary: response already started ──────────────────────────
+
+
+class TestExceptionReRaisedAfterResponseStarted:
+    """Once ``http.response.start`` has been sent the response cannot be
+    replaced, so the middleware must log the failure and re-raise rather
+    than swallow it.
+    """
+
+    async def _inner_app_that_starts_then_raises(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """ASGI app that sends ``http.response.start`` then raises.
+
+        Simulates a failure (e.g. a broken connection or streaming error)
+        that occurs after the status line and headers are already on the
+        wire.
+
+        Args:
+            scope: ASGI connection scope (unused).
+            receive: ASGI receive callable (unused).
+            send: ASGI send callable used to start the response.
+
+        Raises:
+            RuntimeError: Always, after starting the response.
+        """
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"text/plain"]],
+            }
+        )
+        raise RuntimeError("boom after start")
+
+    def test_exception_is_re_raised_after_response_started(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An exception raised after the response started is re-raised.
+
+        The middleware logs the exception with ``logger.exception`` and
+        re-raises it instead of swallowing it, so the ASGI server sees
+        the failure and can close the connection cleanly.
+
+        Args:
+            caplog: Pytest log-capture fixture.
+        """
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testclient", 80),
+            "client": ("testclient", 12345),
+            "scheme": "http",
+            "root_path": "",
+        }
+
+        async def receive() -> dict:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: dict) -> None:
+            pass
+
+        middleware = RequestIdMiddleware(self._inner_app_that_starts_then_raises)
+
+        with pytest.raises(RuntimeError, match="boom after start"):
+            asyncio.run(middleware(scope, receive, send))
+
+        assert "Exception after response started" in caplog.text
 
