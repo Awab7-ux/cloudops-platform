@@ -5,28 +5,77 @@ FastAPI. This phase establishes a tested service foundation and adds a GitHub
 Actions workflow for automated tests. It does not include cloud provisioning,
 Kubernetes, or Terraform.
 
-## Architecture
+## Backend architecture
 
 The service is intentionally stateless and has no database or external service
-dependencies:
+dependencies. Its request flow is organized into these layers:
 
 ```text
-HTTP client
-    │
-    ▼
-Uvicorn (ASGI server)
-    │
-    ▼
-FastAPI application
-    ├── GET /
-    ├── GET /health
-    └── GET /version
+Middleware
+    CORS (outermost)
+        ↓
+    Request-ID / access logging / error boundary
+        ↓
+Routers (app/api/routes)
+        ↓
+Services (app/services)
+        ↓
+Schemas (app/schemas)
+
+Core (app/core): configuration, logging, and errors
 ```
 
 `APP_NAME` and `APP_VERSION` are read from the process environment when the
 application is created. The container runs as a non-root user. Runtime
 dependencies are listed in `requirements.txt`; test and development dependencies
 are isolated in `requirements-dev.txt`.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_NAME` | `CloudOps Platform` | Service name returned by `/` and `/version` |
+| `APP_VERSION` | `0.1.0` | Version returned by `/version` |
+| `PORT` | `8000` | Port used by the Docker container command |
+| `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated allowed origins |
+| `LOG_LEVEL` | `INFO` | Python logging level |
+
+If `CORS_ORIGINS` contains `*`, it is rejected, a warning is logged, and the
+default origins are used. An invalid `LOG_LEVEL` falls back to `INFO`.
+
+### Run locally
+
+From PowerShell, start the backend with:
+
+```powershell
+python -m uvicorn app.main:app --port 8000
+```
+
+To enable debug logs:
+
+```powershell
+$env:LOG_LEVEL="DEBUG"; python -m uvicorn app.main:app --port 8000
+```
+
+### Observability
+
+Every response carries `X-Request-ID`, including 500 responses. A client-supplied
+value is accepted only when it is at most 64 characters and contains only
+`[A-Za-z0-9._-]`; otherwise, a new ID is generated. Unexpected errors return
+`{"detail": "Internal Server Error"}` without leaking details.
+
+Run the tests with:
+
+```powershell
+python -m pytest -q
+```
+
+### Known limitations
+
+- No database.
+- No authentication.
+- The frontend still uses clearly labeled demo data except for `GET /health`
+  and `GET /version`.
 
 ## Requirements
 
@@ -54,28 +103,6 @@ python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
 ```
 
-Run the API locally:
-
-```powershell
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-The server listens on `http://127.0.0.1:8000`. Set optional configuration in
-PowerShell before starting it:
-
-```powershell
-$env:APP_NAME = "CloudOps Platform"
-$env:APP_VERSION = "1.0.0"
-```
-
-Configuration variables:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `APP_NAME` | `CloudOps Platform` | Service name returned by `/` and `/version` |
-| `APP_VERSION` | `0.1.0` | Version returned by `/version` |
-| `PORT` | `8000` | Port used by the Docker container command |
-
 No secrets are required for this phase.
 
 ## API
@@ -100,14 +127,10 @@ Invoke-RestMethod http://127.0.0.1:8000/version
 
 ## Tests
 
-Install the development dependencies as shown above, then run:
-
-```powershell
-python -m pytest -q
-```
-
-The tests check the response bodies, JSON content type, success status codes,
-environment-based configuration, and the not-found status for an unknown route.
+Install the development dependencies as shown above, then use the `Run the
+tests` command in the backend architecture section. The tests check the
+response bodies, JSON content type, success status codes, environment-based
+configuration, and the not-found status for an unknown route.
 
 ## GitHub Actions CI
 
@@ -166,3 +189,4 @@ Tested on Windows 11 with Docker Desktop:
 - `GET /`, `GET /health` and `GET /version` return the expected JSON.
 - `APP_VERSION` is read from the environment; without it, `/version` returns the default `0.1.0`.
 - The container runs as a non-root user (`uid=10001`, `appuser`).
+- The frontend uses clearly labeled demo data everywhere except the live probes of the backend API (`GET /`, `GET /health`, `GET /version`).
