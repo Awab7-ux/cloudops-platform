@@ -1,0 +1,73 @@
+"""Logging configuration for the application.
+
+Sets up Python's standard ``logging`` module with a consistent format
+that includes timestamp, level, logger name, request ID, and message.
+The ``request_id_ctx`` context variable is shared with the request-ID
+middleware so that every log line is automatically correlated to the
+HTTP request that produced it.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from contextvars import ContextVar
+
+# Shared context variable — written by RequestIdMiddleware, read by the
+# log filter.  Default "-" is used for log lines emitted outside a
+# request context (e.g. during startup).
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+
+LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s [%(request_id)s] %(message)s"
+
+# Marker attribute set on our handler so setup_logging() can be called
+# multiple times (e.g. in tests) without adding duplicate handlers.
+_HANDLER_ATTR = "_cloudops_platform"
+
+
+class _RequestIdFilter(logging.Filter):
+    """Injects the current request ID into every log record.
+
+    The ID is read from the ``request_id_ctx`` context variable that is
+    set by ``RequestIdMiddleware``.  Outside of a request context the
+    value defaults to ``"-"``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Add ``request_id`` to the log record.
+
+        Args:
+            record: The log record being processed.
+
+        Returns:
+            Always ``True`` — the record is never suppressed.
+        """
+        record.request_id = request_id_ctx.get()  # type: ignore[attr-defined]
+        return True
+
+
+def setup_logging(log_level: str) -> None:
+    """Configure the root logger with a consistent format and level.
+
+    Adds a single ``StreamHandler`` (to *stderr*) on the first call.
+    Subsequent calls — which happen when ``create_app()`` is invoked
+    multiple times in a test session — update the root level but do not
+    add duplicate handlers.
+
+    Args:
+        log_level: A Python logging level name (e.g. ``"INFO"``,
+            ``"DEBUG"``).
+    """
+    root = logging.getLogger()
+    root.setLevel(log_level)
+
+    # Avoid adding duplicate handlers across multiple create_app() calls.
+    if any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
+        return
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    handler.addFilter(_RequestIdFilter())
+    setattr(handler, _HANDLER_ATTR, True)
+    root.addHandler(handler)
+

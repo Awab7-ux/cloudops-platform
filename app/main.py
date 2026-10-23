@@ -1,58 +1,122 @@
-"""HTTP API for the first phase of CloudOps Platform."""
+"""Application entry point and factory.
 
-import os
+``create_app()`` is the single place where all components are wired
+together: configuration, logging, middleware, CORS, error handlers, and
+routers.  The module-level ``app`` instance is consumed by Uvicorn and
+the Dockerfile ``CMD``.
+
+Backward-compatibility note
+---------------------------
+``DEFAULT_APP_NAME`` and ``DEFAULT_APP_VERSION`` are re-exported here
+so that existing tests can continue to import them from ``app.main``.
+"""
+
+from __future__ import annotations
+
+import logging
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.system import router as system_router
+from app.core.config import (
+    DEFAULT_APP_NAME,
+    DEFAULT_APP_VERSION,
+    build_settings,
+)
+from app.core.errors import register_exception_handlers
+from app.core.logging import setup_logging
+from app.core.middleware import RequestIdMiddleware
 
-DEFAULT_APP_NAME = "CloudOps Platform"
-DEFAULT_APP_VERSION = "0.1.0"
+# Re-exported so existing tests that do
+#   ``from app.main import DEFAULT_APP_NAME, DEFAULT_APP_VERSION``
+# keep working without modification.
+__all__ = ["DEFAULT_APP_NAME", "DEFAULT_APP_VERSION", "create_app", "app"]
 
-
-class RootResponse(BaseModel):
-    name: str
-    message: str
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-class VersionResponse(BaseModel):
-    name: str
-    version: str
-
-
-def _environment_setting(name: str, default: str) -> str:
-    """Read a non-empty setting from the environment, otherwise use its default."""
-    value = os.getenv(name)
-    return value.strip() if value and value.strip() else default
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
-    """Create the API using the current process environment."""
-    app_name = _environment_setting("APP_NAME", DEFAULT_APP_NAME)
-    app_version = _environment_setting("APP_VERSION", DEFAULT_APP_VERSION)
+    """Create and fully configure the FastAPI application.
 
-    app = FastAPI(title=app_name, version=app_version)
+    Reads all settings from environment variables (no caching — every
+    call re-reads the environment so that monkeypatch-based tests work),
+    configures logging, installs middleware, mounts routers, and
+    registers the global exception handler.
 
-    @app.get("/", response_model=RootResponse, status_code=200)
-    def read_root() -> RootResponse:
-        return RootResponse(
-            name=app_name,
-            message=f"{app_name} API is running.",
-        )
+    **Middleware ordering** (outermost → innermost):
 
-    @app.get("/health", response_model=HealthResponse, status_code=200)
-    def read_health() -> HealthResponse:
-        return HealthResponse(status="ok")
+    1. ``CORSMiddleware`` — enforces the origin allow-list with a
+       GET-only, no-credentials policy.
+    2. ``RequestIdMiddleware`` — assigns/validates ``X-Request-ID``,
+       logs method, path, status code, and duration, and acts as the
+       error boundary for unhandled exceptions.
 
-    @app.get("/version", response_model=VersionResponse, status_code=200)
-    def read_version() -> VersionResponse:
-        return VersionResponse(name=app_name, version=app_version)
+    The error boundary in ``RequestIdMiddleware`` catches unhandled
+    exceptions and returns a safe 500 JSON response *inside* the
+    middleware stack, so the response passes back through
+    ``CORSMiddleware``.  This guarantees that ``X-Request-ID`` **and**
+    CORS headers are present even on 500 responses.
 
-    return app
+    Returns:
+        A fully configured ``FastAPI`` application instance.
+    """
+    settings = build_settings()
+
+    setup_logging(settings.log_level)
+
+    application = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+    )
+
+    # Store settings in app.state for dependency injection via
+    # get_settings(request) — avoids module-level singletons.
+    application.state.settings = settings
+
+    # --- Exception handlers (innermost — part of the ASGI app) ---
+    register_exception_handlers(application)
+
+    # --- Routers ---
+    application.include_router(system_router)
+
+    # --- Middleware (added bottom-up; last add_middleware = outermost) ---
+    # WHY this order: Starlette makes the *last* ``add_middleware``
+    # call the outermost layer.  CORSMiddleware must be outermost so
+    # that CORS headers are added to every response — including the
+    # safe 500s produced by the error boundary inside
+    # RequestIdMiddleware.
+
+    # Request-ID + access-log + error boundary: catches unhandled
+    # exceptions inside the stack so the 500 response travels back
+    # through CORSMiddleware and gets both X-Request-ID and CORS
+    # headers.
+    application.add_middleware(RequestIdMiddleware)
+
+    # CORS: outermost layer — allow only the configured origins, only
+    # GET, never send credentials.  Wildcard "*" is already rejected
+    # by build_settings().
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_methods=["GET"],
+        allow_credentials=False,
+        # Empty list: no extra request headers are permitted in
+        # preflight.  GET with standard headers is a "simple request"
+        # and does not trigger preflight anyway.
+        allow_headers=[],
+    )
+
+    logger.info(
+        "Application started: name=%s, version=%s, log_level=%s, "
+        "cors_origins=%s",
+        settings.app_name,
+        settings.app_version,
+        settings.log_level,
+        settings.cors_origins,
+    )
+
+    return application
 
 
 app = create_app()
