@@ -1,0 +1,154 @@
+"""Application configuration parsed from environment variables.
+
+All settings follow the 12-factor methodology: they are read from the
+process environment, parsed once at startup inside create_app(), and
+stored in a frozen dataclass that is injected into every component that
+needs them.  No module-level singletons or lru_cache are used, so
+monkeypatch-based tests can override variables between create_app() calls.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+
+from fastapi import Request
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_APP_NAME: str = "CloudOps Platform"
+DEFAULT_APP_VERSION: str = "0.1.0"
+
+# Hardcoded defaults prevent accidental wildcard exposure in production.
+DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+)
+
+DEFAULT_LOG_LEVEL: str = "INFO"
+
+
+def _read_env(name: str, default: str) -> str:
+    """Read a non-empty, whitespace-trimmed value from the environment.
+
+    Args:
+        name: Environment variable name.
+        default: Fallback value when the variable is unset or blank.
+
+    Returns:
+        The trimmed environment value, or *default*.
+    """
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else default
+
+
+def _parse_cors_origins(raw: str) -> tuple[str, ...]:
+    """Parse a comma-separated CORS-origins string into a tuple.
+
+    A wildcard ``*`` is explicitly rejected to prevent accidental
+    exposure; the safe defaults are used instead and a warning is logged.
+
+    Args:
+        raw: Comma-separated origin strings, e.g. ``"http://a,http://b"``.
+
+    Returns:
+        Tuple of origin strings, guaranteed to never contain ``"*"``.
+    """
+    origins = tuple(o.strip() for o in raw.split(",") if o.strip())
+
+    if "*" in origins:
+        logger.warning(
+            "CORS_ORIGINS contains wildcard '*'; "
+            "falling back to defaults %s",
+            DEFAULT_CORS_ORIGINS,
+        )
+        return DEFAULT_CORS_ORIGINS
+
+    return origins if origins else DEFAULT_CORS_ORIGINS
+
+
+def _parse_log_level(raw: str) -> str:
+    """Validate and normalise a log-level string.
+
+    Args:
+        raw: Log level from the environment (e.g. ``"DEBUG"``, ``"info"``).
+
+    Returns:
+        Upper-cased log level.  Falls back to ``"INFO"`` for invalid values.
+    """
+    level = raw.strip().upper()
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+    if level not in valid_levels:
+        logger.warning(
+            "Invalid LOG_LEVEL '%s'; falling back to INFO",
+            raw,
+        )
+        return DEFAULT_LOG_LEVEL
+
+    return level
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Immutable application settings built from environment variables.
+
+    Attributes:
+        app_name: Human-readable service name.
+        app_version: Semantic version string.
+        port: HTTP listening port (used by the container CMD).
+        cors_origins: Allowed CORS origins; never includes ``"*"``.
+        log_level: Python logging level name.
+    """
+
+    app_name: str
+    app_version: str
+    port: int
+    cors_origins: tuple[str, ...]
+    log_level: str
+
+
+def build_settings() -> Settings:
+    """Build a Settings instance from current environment variables.
+
+    Called once per ``create_app()`` invocation so that monkeypatch-based
+    tests can override environment variables between calls.
+
+    Returns:
+        A frozen ``Settings`` dataclass.
+    """
+    cors_raw = _read_env("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS))
+    log_raw = _read_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
+
+    port_raw = _read_env("PORT", "8000")
+    try:
+        port = int(port_raw)
+    except ValueError:
+        logger.warning("Invalid PORT '%s'; falling back to 8000", port_raw)
+        port = 8000
+
+    return Settings(
+        app_name=_read_env("APP_NAME", DEFAULT_APP_NAME),
+        app_version=_read_env("APP_VERSION", DEFAULT_APP_VERSION),
+        port=port,
+        cors_origins=_parse_cors_origins(cors_raw),
+        log_level=_parse_log_level(log_raw),
+    )
+
+
+def get_settings(request: Request) -> Settings:
+    """FastAPI dependency that retrieves Settings from application state.
+
+    ``create_app()`` stores the ``Settings`` instance in ``app.state``
+    so that every request handler receives the same immutable object
+    without importing a module-level global.
+
+    Args:
+        request: The current FastAPI request (injected automatically).
+
+    Returns:
+        The application ``Settings`` instance.
+    """
+    return request.app.state.settings
+
