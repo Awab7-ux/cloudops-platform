@@ -33,6 +33,17 @@ class HealthResponse(BaseModel):
     status: str
 
 
+# Pydantic model for GET /ready response (database status).
+class ReadyResponse(BaseModel):
+    """Response body for ``GET /ready``.
+
+    Attributes:
+        status: Database readiness result, ``"ready"`` on success.
+    """
+
+    status: str
+
+
 # Pydantic model for GET /version response (name, version).
 class VersionResponse(BaseModel):
     """Response body for ``GET /version``.

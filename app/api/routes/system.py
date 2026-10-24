@@ -11,7 +11,13 @@ import logging
 
 from fastapi import APIRouter, Depends
 
-from app.schemas.system import HealthResponse, RootResponse, VersionResponse
+from app.schemas.system import (
+    HealthResponse,
+    ReadyResponse,
+    RootResponse,
+    VersionResponse,
+)
+from app.services.readiness import ReadinessService, get_readiness_service
 from app.services.system import SystemService, get_system_service
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,25 @@ def read_health(
 
 
 # HTTP handler for GET /version — delegates to SystemService.
+# HTTP handler for GET /ready; database work stays in ReadinessService.
+@router.get("/ready", response_model=ReadyResponse, status_code=200)
+def read_ready(
+    service: ReadinessService = Depends(get_readiness_service),
+) -> ReadyResponse:
+    """Return database readiness status.
+
+    Args:
+        service: Injected ``ReadinessService`` instance.
+
+    Returns:
+        ``ReadyResponse`` when the database executes ``SELECT 1``.
+    """
+    logger.debug("read_ready entry")
+    response = service.check_database()
+    logger.debug("read_ready exit: status=%s", response.status)
+    return response
+
+
 @router.get("/version", response_model=VersionResponse, status_code=200)
 def read_version(
     service: SystemService = Depends(get_system_service),

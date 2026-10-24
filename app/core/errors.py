@@ -19,6 +19,11 @@ from app.core.logging import safe_log_value
 
 logger = logging.getLogger(__name__)
 
+
+# Domain error raised when the readiness query cannot use the database.
+class DatabaseUnavailableError(Exception):
+    """Indicate that the configured database is unavailable."""
+
 # ── Shared safe-error body (DRY) ─────────────────────────────────────
 
 # WHY a constant dict: both the middleware error boundary and the
@@ -44,6 +49,36 @@ def build_error_response() -> JSONResponse:
         status_code=500,
         content=INTERNAL_ERROR_BODY,
     )
+
+
+# Builds the safe response for a failed database readiness check.
+async def _database_unavailable_exception_handler(
+    request: Request,
+    exc: DatabaseUnavailableError,
+) -> JSONResponse:
+    """Return a safe 503 response for database unavailability.
+
+    Args:
+        request: Request that triggered the readiness failure.
+        exc: Domain error describing database unavailability.
+
+    Returns:
+        A JSON response without database exception details.
+    """
+    logger.debug(
+        "_database_unavailable_exception_handler entry: method=%s path=%s",
+        safe_log_value(request.method),
+        safe_log_value(request.url.path),
+    )
+    response = JSONResponse(
+        status_code=503,
+        content={"detail": "database unavailable"},
+    )
+    logger.debug(
+        "_database_unavailable_exception_handler exit: status_code=%d",
+        response.status_code,
+    )
+    return response
 
 
 # ── Last-resort exception handler ────────────────────────────────────
@@ -97,6 +132,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         app: The FastAPI application instance.
     """
     logger.debug("register_exception_handlers entry")
+    app.add_exception_handler(
+        DatabaseUnavailableError,
+        _database_unavailable_exception_handler,
+    )
     app.add_exception_handler(Exception, _unhandled_exception_handler)
     logger.debug("register_exception_handlers exit")
 

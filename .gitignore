@@ -54,6 +54,7 @@ venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+cloudops.db
 
 # Local secrets and credentials
 .env
