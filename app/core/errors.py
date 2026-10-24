@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.logging import safe_log_value
+from app.domain.exceptions import ConflictError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,64 @@ async def _database_unavailable_exception_handler(
     return response
 
 
+# Builds the safe 404 response for missing application resources.
+async def _not_found_exception_handler(
+    request: Request,
+    exc: NotFoundError,
+) -> JSONResponse:
+    """Return the public response for a missing application.
+
+    Args:
+        request: Request that triggered the missing-resource error.
+        exc: Domain error describing the missing resource.
+
+    Returns:
+        A 404 response with a fixed safe detail.
+    """
+    logger.debug(
+        "_not_found_exception_handler entry: path=%s",
+        safe_log_value(request.url.path),
+    )
+    response = JSONResponse(
+        status_code=404,
+        content={"detail": "application not found"},
+    )
+    logger.debug(
+        "_not_found_exception_handler exit: status_code=%d",
+        response.status_code,
+    )
+    return response
+
+
+# Builds the safe 409 response for duplicate application names.
+async def _conflict_exception_handler(
+    request: Request,
+    exc: ConflictError,
+) -> JSONResponse:
+    """Return the public response for an application name conflict.
+
+    Args:
+        request: Request that triggered the conflict error.
+        exc: Domain error describing the conflict.
+
+    Returns:
+        A 409 response with a fixed safe detail.
+    """
+    logger.debug(
+        "_conflict_exception_handler entry: path=%s",
+        safe_log_value(request.url.path),
+    )
+    response = JSONResponse(
+        status_code=409,
+        content={"detail": "application name already exists"},
+    )
+    logger.debug(
+        "_conflict_exception_handler exit: status_code=%d",
+        response.status_code,
+    )
+    return response
+
+
 # ── Last-resort exception handler ────────────────────────────────────
 
 
@@ -136,6 +195,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         DatabaseUnavailableError,
         _database_unavailable_exception_handler,
     )
+    app.add_exception_handler(NotFoundError, _not_found_exception_handler)
+    app.add_exception_handler(ConflictError, _conflict_exception_handler)
     app.add_exception_handler(Exception, _unhandled_exception_handler)
     logger.debug("register_exception_handlers exit")
 
