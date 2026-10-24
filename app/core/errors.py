@@ -77,6 +77,7 @@ async def _unhandled_exception_handler(
         safe_log_value(request.url.path),
         safe_log_value(type(exc).__name__),
     )
+    logger.debug("Unhandled exception traceback", exc_info=exc)
     return build_error_response()
 
 

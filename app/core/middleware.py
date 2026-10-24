@@ -155,6 +155,7 @@ class RequestIdMiddleware:
                     safe_request_id,
                     safe_log_value(type(exc).__name__),
                 )
+                logger.debug("Unhandled exception traceback", exc_info=exc)
                 # Build the safe JSON response, inject request-ID,
                 # and send it through the normal ASGI channel.
                 error_response = build_error_response()
@@ -172,6 +173,9 @@ class RequestIdMiddleware:
                     safe_path,
                     safe_request_id,
                     safe_log_value(type(exc).__name__),
+                )
+                logger.debug(
+                    "Exception after response started traceback", exc_info=exc
                 )
                 raise
         finally:
