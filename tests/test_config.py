@@ -433,3 +433,41 @@ class TestPortRange:
 
         assert settings.port == 8080
 
+
+# CORS origins are canonicalized and malformed entries are excluded.
+class TestCorsOriginValidation:
+    """CORS settings contain only usable, non-duplicated origins."""
+
+# Valid HTTP(S) origins are normalized and duplicate entries are removed.
+    def test_cors_origins_are_canonicalized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only canonical HTTP(S) origins remain in configured CORS origins."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS",
+            "HTTPS://APP.EXAMPLE.COM, https://good.example.com/, "
+            "javascript:alert(1), https://good.example.com, "
+            "http://localhost:3000",
+        )
+
+        settings = build_settings()
+
+        assert settings.cors_origins == (
+            "https://app.example.com",
+            "https://good.example.com",
+            "http://localhost:3000",
+        )
+
+# Invalid-only CORS configuration falls back to safe defaults.
+    def test_invalid_only_cors_origins_use_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An all-invalid CORS configuration uses the safe defaults."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS", "javascript:alert(1), https://bad.example.com/"
+        )
+
+        settings = build_settings()
+
+        assert settings.cors_origins == DEFAULT_CORS_ORIGINS
+

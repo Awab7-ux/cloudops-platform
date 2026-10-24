@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from fastapi import Request
 
@@ -29,6 +31,8 @@ DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
 )
 
 DEFAULT_LOG_LEVEL: str = "INFO"
+VALID_CORS_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+MAX_CORS_ORIGIN_LENGTH: int = 2048
 
 DEFAULT_PORT: int = 8000
 MIN_PORT: int = 1
@@ -50,7 +54,41 @@ def _read_env(name: str, default: str) -> str:
     return value.strip() if value and value.strip() else default
 
 
-# Splits CORS_ORIGINS and rejects wildcard '*' (falls back to safe defaults).
+# Normalizes one configured CORS origin or returns None when it is unusable.
+def _normalise_cors_origin(raw: str) -> str | None:
+    """Normalize one HTTP(S) origin.
+
+    Args:
+        raw: Trimmed origin value.
+
+    Returns:
+        A canonical origin, or ``None`` for malformed input.
+    """
+    if not raw or len(raw) > MAX_CORS_ORIGIN_LENGTH:
+        return None
+    if any(char.isspace() or ord(char) < 32 for char in raw):
+        return None
+    try:
+        parsed = urlsplit(raw)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in VALID_CORS_SCHEMES:
+        return None
+    if not hostname or parsed.username or parsed.password or parsed.path:
+        return None
+    if parsed.query or parsed.fragment or parsed.netloc.endswith(":"):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", hostname):
+        return None
+    host = hostname.lower()
+    host = f"[{host}]" if ":" in host else host
+    suffix = f":{port}" if port is not None else ""
+    return f"{parsed.scheme.lower()}://{host}{suffix}"
+
+
+# Splits CORS_ORIGINS, rejects wildcard '*', and removes malformed entries.
 def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     """Parse a comma-separated CORS-origins string into a tuple.
 
@@ -63,17 +101,23 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     Returns:
         Tuple of origin strings, guaranteed to never contain ``"*"``.
     """
-    origins = tuple(o.strip() for o in raw.split(",") if o.strip())
+    origins: list[str] = []
+    seen: set[str] = set()
+    for raw_origin in raw.split(","):
+        candidate = raw_origin.strip()
+        if candidate == "*":
+            logger.warning(
+                "CORS_ORIGINS contains wildcard '*'; "
+                "falling back to defaults %s",
+                safe_log_value(DEFAULT_CORS_ORIGINS),
+            )
+            return DEFAULT_CORS_ORIGINS
+        origin = _normalise_cors_origin(candidate)
+        if origin and origin not in seen:
+            origins.append(origin)
+            seen.add(origin)
 
-    if "*" in origins:
-        logger.warning(
-            "CORS_ORIGINS contains wildcard '*'; "
-            "falling back to defaults %s",
-            safe_log_value(DEFAULT_CORS_ORIGINS),
-        )
-        return DEFAULT_CORS_ORIGINS
-
-    return origins if origins else DEFAULT_CORS_ORIGINS
+    return tuple(origins) if origins else DEFAULT_CORS_ORIGINS
 
 
 # Upper-cases and validates LOG_LEVEL; falls back to INFO when invalid.
