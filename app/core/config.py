@@ -13,7 +13,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from fastapi import Request
 
@@ -54,6 +54,42 @@ def _read_env(name: str, default: str) -> str:
     return value.strip() if value and value.strip() else default
 
 
+# Canonicalizes a parsed CORS origin or returns None when it is unusable.
+def _canonicalize_cors_origin(parsed: SplitResult) -> str | None:
+    """Canonicalize one parsed HTTP(S) origin.
+
+    Args:
+        parsed: Parsed origin value.
+
+    Returns:
+        A canonical origin, or ``None`` for malformed input.
+    """
+    logger.debug("_canonicalize_cors_origin entry")
+    try:
+        hostname = parsed.hostname
+        port = parsed.port
+        if (
+            parsed.scheme.lower() not in VALID_CORS_SCHEMES
+            or not hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.netloc.endswith(":")
+            or not re.fullmatch(r"[A-Za-z0-9._:-]+", hostname)
+        ):
+            return None
+        host = hostname.lower()
+        host = f"[{host}]" if ":" in host else host
+        suffix = f":{port}" if port is not None else ""
+        return f"{parsed.scheme.lower()}://{host}{suffix}"
+    except ValueError:
+        return None
+    finally:
+        logger.debug("_canonicalize_cors_origin exit")
+
+
 # Normalizes one configured CORS origin or returns None when it is unusable.
 def _normalise_cors_origin(raw: str) -> str | None:
     """Normalize one HTTP(S) origin.
@@ -64,28 +100,19 @@ def _normalise_cors_origin(raw: str) -> str | None:
     Returns:
         A canonical origin, or ``None`` for malformed input.
     """
-    if not raw or len(raw) > MAX_CORS_ORIGIN_LENGTH:
-        return None
-    if any(char.isspace() or ord(char) < 32 for char in raw):
-        return None
+    logger.debug(
+        "_normalise_cors_origin entry: origin=%s", safe_log_value(raw)
+    )
     try:
-        parsed = urlsplit(raw)
-        hostname = parsed.hostname
-        port = parsed.port
+        if not raw or len(raw) > MAX_CORS_ORIGIN_LENGTH:
+            return None
+        if any(char.isspace() or ord(char) < 32 for char in raw):
+            return None
+        return _canonicalize_cors_origin(urlsplit(raw))
     except ValueError:
         return None
-    if parsed.scheme.lower() not in VALID_CORS_SCHEMES:
-        return None
-    if not hostname or parsed.username or parsed.password or parsed.path:
-        return None
-    if parsed.query or parsed.fragment or parsed.netloc.endswith(":"):
-        return None
-    if not re.fullmatch(r"[A-Za-z0-9._:-]+", hostname):
-        return None
-    host = hostname.lower()
-    host = f"[{host}]" if ":" in host else host
-    suffix = f":{port}" if port is not None else ""
-    return f"{parsed.scheme.lower()}://{host}{suffix}"
+    finally:
+        logger.debug("_normalise_cors_origin exit")
 
 
 # Splits CORS_ORIGINS, rejects wildcard '*', and removes malformed entries.
@@ -113,11 +140,20 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
             )
             return DEFAULT_CORS_ORIGINS
         origin = _normalise_cors_origin(candidate)
-        if origin and origin not in seen:
+        if origin is None:
+            logger.warning(
+                "Ignoring invalid CORS origin '%s'",
+                safe_log_value(candidate),
+            )
+            continue
+        if origin not in seen:
             origins.append(origin)
             seen.add(origin)
 
-    return tuple(origins) if origins else DEFAULT_CORS_ORIGINS
+    if origins:
+        return tuple(origins)
+    logger.warning("No valid CORS origins configured; using defaults")
+    return DEFAULT_CORS_ORIGINS
 
 
 # Upper-cases and validates LOG_LEVEL; falls back to INFO when invalid.
