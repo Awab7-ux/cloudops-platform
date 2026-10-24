@@ -16,7 +16,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.errors import build_error_response
-from app.core.logging import request_id_ctx
+from app.core.logging import request_id_ctx, safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,9 @@ class RequestIdMiddleware:
 
         method: str = scope.get("method", "?")
         path: str = scope.get("path", "?")
+        safe_method = safe_log_value(method)
+        safe_path = safe_log_value(path)
+        safe_request_id = safe_log_value(request_id)
         start = time.perf_counter()
 
         # Default to 500 so that even if we never see an
@@ -139,16 +142,18 @@ class RequestIdMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
-        except Exception:
+        except Exception as exc:
             # WHY catch here: ensures the 500 response passes back
             # through CORSMiddleware (which wraps this middleware) so
             # CORS and X-Request-ID headers are always present.
             if not response_started:
-                logger.exception(
-                    "Unhandled exception on %s %s [request_id=%s]",
-                    method,
-                    path,
-                    request_id,
+                logger.error(
+                    "Unhandled exception on method=%s path=%s "
+                    "request_id=%s exception_type=%s",
+                    safe_method,
+                    safe_path,
+                    safe_request_id,
+                    safe_log_value(type(exc).__name__),
                 )
                 # Build the safe JSON response, inject request-ID,
                 # and send it through the normal ASGI channel.
@@ -160,12 +165,13 @@ class RequestIdMiddleware:
                 # the failure and re-raise so the ASGI server can close
                 # the connection cleanly instead of silently swallowing
                 # the error.
-                logger.exception(
-                    "Exception after response started on %s %s "
-                    "[request_id=%s]",
-                    method,
-                    path,
-                    request_id,
+                logger.error(
+                    "Exception after response started on method=%s path=%s "
+                    "request_id=%s exception_type=%s",
+                    safe_method,
+                    safe_path,
+                    safe_request_id,
+                    safe_log_value(type(exc).__name__),
                 )
                 raise
         finally:
@@ -174,8 +180,8 @@ class RequestIdMiddleware:
             # invisible in the access log.
             logger.info(
                 "%s %s -> %d (%.1fms)",
-                method,
-                path,
+                safe_method,
+                safe_path,
                 status_code,
                 duration_ms,
             )

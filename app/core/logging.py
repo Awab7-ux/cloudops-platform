@@ -19,10 +19,28 @@ from contextvars import ContextVar
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s [%(request_id)s] %(message)s"
+MAX_LOG_VALUE_LENGTH: int = 256
 
 # Marker attribute set on our handler so setup_logging() can be called
 # multiple times (e.g. in tests) without adding duplicate handlers.
 _HANDLER_ATTR = "_cloudops_platform"
+
+
+# Escapes control characters and bounds values before they enter log records.
+def safe_log_value(value: object) -> str:
+    """Return a bounded, single-line representation of a log value.
+
+    Args:
+        value: Value that may contain user-controlled text.
+
+    Returns:
+        An ASCII-escaped value truncated to ``MAX_LOG_VALUE_LENGTH``.
+    """
+    # WHY unicode_escape: it turns newlines and other controls into literals.
+    escaped = str(value).encode("unicode_escape", "backslashreplace").decode("ascii")
+    if len(escaped) > MAX_LOG_VALUE_LENGTH:
+        return escaped[:MAX_LOG_VALUE_LENGTH] + "...[truncated]"
+    return escaped
 
 
 # logging.Filter that injects the current request ID from request_id_ctx.

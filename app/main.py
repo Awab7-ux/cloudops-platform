@@ -25,7 +25,7 @@ from app.core.config import (
     build_settings,
 )
 from app.core.errors import register_exception_handlers
-from app.core.logging import setup_logging
+from app.core.logging import safe_log_value, setup_logging
 from app.core.middleware import RequestIdMiddleware
 
 # Re-exported so existing tests that do
@@ -111,10 +111,10 @@ def create_app() -> FastAPI:
     logger.info(
         "Application started: name=%s, version=%s, log_level=%s, "
         "cors_origins=%s",
-        settings.app_name,
-        settings.app_version,
+        safe_log_value(settings.app_name),
+        safe_log_value(settings.app_version),
         settings.log_level,
-        settings.cors_origins,
+        safe_log_value(settings.cors_origins),
     )
 
     return application

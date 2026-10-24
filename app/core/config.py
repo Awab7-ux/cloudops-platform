@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 from fastapi import Request
 
+from app.core.logging import safe_log_value
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_APP_NAME: str = "CloudOps Platform"
@@ -67,7 +69,7 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
         logger.warning(
             "CORS_ORIGINS contains wildcard '*'; "
             "falling back to defaults %s",
-            DEFAULT_CORS_ORIGINS,
+            safe_log_value(DEFAULT_CORS_ORIGINS),
         )
         return DEFAULT_CORS_ORIGINS
 
@@ -90,7 +92,7 @@ def _parse_log_level(raw: str) -> str:
     if level not in valid_levels:
         logger.warning(
             "Invalid LOG_LEVEL '%s'; falling back to INFO",
-            raw,
+            safe_log_value(raw),
         )
         return DEFAULT_LOG_LEVEL
 
@@ -112,19 +114,23 @@ def _parse_port(raw: str) -> int:
     Returns:
         A valid port number, or ``DEFAULT_PORT`` when *raw* is unusable.
     """
-    logger.debug("_parse_port entry: raw=%r", raw)
+    logger.debug("_parse_port entry: raw=%s", safe_log_value(raw))
 
     try:
         port = int(raw)
     except ValueError:
-        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.warning(
+            "Invalid PORT '%s'; falling back to 8000", safe_log_value(raw)
+        )
         logger.debug(
             "_parse_port exit: not an integer; using default %d", DEFAULT_PORT
         )
         return DEFAULT_PORT
 
     if port < MIN_PORT or port > MAX_PORT:
-        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.warning(
+            "Invalid PORT '%s'; falling back to 8000", safe_log_value(raw)
+        )
         logger.debug(
             "_parse_port exit: port %d out of range %d..%d; using default %d",
             port,

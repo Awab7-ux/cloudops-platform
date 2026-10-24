@@ -8,6 +8,7 @@ exceptions.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 import pytest
@@ -431,4 +432,60 @@ class TestRequestIdHeaderBoundary:
         ]
         assert len(request_id_headers) == 1
         assert request_id_headers[0][1] != b"inner"
+
+
+# Request metadata and exception messages do not create unsafe log records.
+class TestSafeRequestLogging:
+    """Request logs escape untrusted metadata and omit exception messages."""
+
+# A percent-encoded newline in a path remains on one log record line.
+    def test_access_log_escapes_newline_path(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Access logs escape a newline decoded into the request path."""
+        _clean_env(monkeypatch)
+        client = TestClient(create_app())
+
+        with caplog.at_level(logging.INFO, logger="app.core.middleware"):
+            response = client.get("/%0aINJECT")
+
+        access_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.core.middleware" and "-> 404" in record.getMessage()
+        ]
+        assert response.status_code == 404
+        assert access_logs
+        assert access_logs[-1].startswith(
+            "GET /" + chr(92) + "nINJECT -> 404 ("
+        )
+        assert "GET /" + chr(10) + "INJECT" not in access_logs[-1]
+
+# A user-controlled exception message is omitted from application logs.
+    def test_exception_log_omits_exception_message(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unhandled exception logs include type but not exception text."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        # Route raises a message containing a newline and sensitive text.
+        @test_app.get("/log-error")
+        def raise_error() -> None:
+            """Raise an exception with user-controlled text."""
+            raise RuntimeError("secret" + chr(10) + "INJECT")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        with caplog.at_level(logging.ERROR, logger="app.core.middleware"):
+            response = client.get("/log-error")
+
+        middleware_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+        ]
+        assert response.status_code == 500
+        assert any("exception_type=RuntimeError" in message for message in middleware_logs)
+        assert all("secret" not in message for message in middleware_logs)
+        assert all("INJECT" not in message for message in middleware_logs)
 

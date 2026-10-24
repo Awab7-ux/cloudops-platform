@@ -15,6 +15,8 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.logging import safe_log_value
+
 logger = logging.getLogger(__name__)
 
 # ── Shared safe-error body (DRY) ─────────────────────────────────────
@@ -59,8 +61,8 @@ async def _unhandled_exception_handler(
     fires only if something goes wrong before or outside the
     middleware stack.
 
-    The full traceback is logged server-side at ``EXCEPTION`` level
-    for debugging, but clients receive only a safe, opaque message.
+    A safe summary is logged server-side for correlation, but clients
+    receive only a safe, opaque message.
 
     Args:
         request: The request that triggered the exception.
@@ -69,10 +71,11 @@ async def _unhandled_exception_handler(
     Returns:
         A 500 ``JSONResponse`` with ``{"detail": "Internal Server Error"}``.
     """
-    logger.exception(
-        "Unhandled exception on %s %s",
-        request.method,
-        request.url.path,
+    logger.error(
+        "Unhandled exception on method=%s path=%s exception_type=%s",
+        safe_log_value(request.method),
+        safe_log_value(request.url.path),
+        safe_log_value(type(exc).__name__),
     )
     return build_error_response()
 

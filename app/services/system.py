@@ -13,6 +13,7 @@ import logging
 from fastapi import Depends
 
 from app.core.config import Settings, get_settings
+from app.core.logging import safe_log_value
 from app.schemas.system import HealthResponse, RootResponse, VersionResponse
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class SystemService:
         """
         logger.debug(
             "Building root response for app_name=%s",
-            self._settings.app_name,
+            safe_log_value(self._settings.app_name),
         )
         return RootResponse(
             name=self._settings.app_name,
@@ -74,8 +75,8 @@ class SystemService:
         """
         logger.debug(
             "Building version response: app_name=%s version=%s",
-            self._settings.app_name,
-            self._settings.app_version,
+            safe_log_value(self._settings.app_name),
+            safe_log_value(self._settings.app_version),
         )
         return VersionResponse(
             name=self._settings.app_name,
