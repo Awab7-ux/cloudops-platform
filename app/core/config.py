@@ -31,6 +31,7 @@ DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
 )
 
 DEFAULT_LOG_LEVEL: str = "INFO"
+DEFAULT_DATABASE_URL: str = "sqlite:///./cloudops.db"
 VALID_CORS_SCHEMES: frozenset[str] = frozenset({"http", "https"})
 MAX_CORS_ORIGIN_LENGTH: int = 2048
 
@@ -243,6 +244,7 @@ class Settings:
         port: HTTP listening port (used by the container CMD).
         cors_origins: Allowed CORS origins; never includes ``"*"``.
         log_level: Python logging level name.
+        database_url: SQLAlchemy database URL.
     """
 
     app_name: str
@@ -250,6 +252,7 @@ class Settings:
     port: int
     cors_origins: tuple[str, ...]
     log_level: str
+    database_url: str
 
 
 # Reads env once per create_app() call so monkeypatch tests stay isolated.
@@ -265,6 +268,7 @@ def build_settings() -> Settings:
     logger.debug("build_settings entry")
     cors_raw = _read_env("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS))
     log_raw = _read_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
+    database_url = _read_env("DATABASE_URL", DEFAULT_DATABASE_URL)
 
     port_raw = _read_env("PORT", str(DEFAULT_PORT))
     port = _parse_port(port_raw)
@@ -275,6 +279,7 @@ def build_settings() -> Settings:
         port=port,
         cors_origins=_parse_cors_origins(cors_raw),
         log_level=_parse_log_level(log_raw),
+        database_url=database_url,
     )
 
 

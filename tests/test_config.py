@@ -15,6 +15,7 @@ from app.core.config import (
     DEFAULT_APP_VERSION,
     DEFAULT_CORS_ORIGINS,
     DEFAULT_LOG_LEVEL,
+    DEFAULT_DATABASE_URL,
     build_settings,
 )
 
@@ -91,6 +92,15 @@ class TestDefaults:
         settings = build_settings()
 
         assert settings.log_level == DEFAULT_LOG_LEVEL
+
+# DATABASE_URL defaults to a local SQLite database.
+    def test_database_url_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DATABASE_URL defaults to the local SQLite database path."""
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.database_url == DEFAULT_DATABASE_URL
 
 
 # Empty or whitespace-only env values fall back to defaults.
@@ -169,6 +179,15 @@ class TestEmptyAndWhitespace:
         settings = build_settings()
 
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
+
+# Empty DATABASE_URL falls back to the local SQLite database.
+    def test_empty_database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An empty DATABASE_URL falls back to the default."""
+        monkeypatch.setenv("DATABASE_URL", "   ")
+
+        settings = build_settings()
+
+        assert settings.database_url == DEFAULT_DATABASE_URL
 
 
 # Invalid env values fall back to safe defaults with a warning.
@@ -269,6 +288,30 @@ class TestCustomValues:
         settings = build_settings()
 
         assert settings.app_name == "Custom Service"
+
+# DATABASE_URL overrides the local default.
+    def test_custom_database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DATABASE_URL overrides the default and is trimmed."""
+        monkeypatch.setenv("DATABASE_URL", "  sqlite:///custom.db  ")
+
+        settings = build_settings()
+
+        assert settings.database_url == "sqlite:///custom.db"
+
+# DATABASE_URL is not emitted into application logs.
+    def test_database_url_never_logged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The configured database URL never appears in log output."""
+        database_url = "sqlite:///sensitive-database-url.db"
+        monkeypatch.setenv("DATABASE_URL", database_url)
+
+        with caplog.at_level(logging.DEBUG, logger="app.core.config"):
+            build_settings()
+
+        assert database_url not in caplog.text
 
 # Custom CORS_ORIGINS replaces the defaults.
     def test_custom_cors_origins(
