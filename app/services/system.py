@@ -37,7 +37,9 @@ class SystemService:
         Args:
             settings: The frozen application ``Settings`` instance.
         """
+        logger.debug("SystemService.__init__ entry")
         self._settings = settings
+        logger.debug("SystemService.__init__ exit")
 
 # Builds RootResponse from settings.
     def get_root(self) -> RootResponse:
@@ -99,5 +101,6 @@ def get_system_service(
     Returns:
         A ``SystemService`` instance for the current request.
     """
+    logger.debug("get_system_service entry")
     return SystemService(settings)
 
