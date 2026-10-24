@@ -28,6 +28,10 @@ DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
 
 DEFAULT_LOG_LEVEL: str = "INFO"
 
+DEFAULT_PORT: int = 8000
+MIN_PORT: int = 1
+MAX_PORT: int = 65535
+
 
 def _read_env(name: str, default: str) -> str:
     """Read a non-empty, whitespace-trimmed value from the environment.
@@ -90,6 +94,47 @@ def _parse_log_level(raw: str) -> str:
     return level
 
 
+# WHY: a port outside 1..65535 cannot be bound, so an out-of-range value
+# would make the server fail to start; fall back to the safe default.
+def _parse_port(raw: str) -> int:
+    """Parse and validate a TCP port from an environment string.
+
+    Accepts integers in the inclusive range ``MIN_PORT``..``MAX_PORT``.
+    Non-integer or out-of-range values fall back to ``DEFAULT_PORT`` with a
+    warning, because an invalid port would make the server fail to start.
+
+    Args:
+        raw: Raw PORT value from the environment.
+
+    Returns:
+        A valid port number, or ``DEFAULT_PORT`` when *raw* is unusable.
+    """
+    logger.debug("_parse_port entry: raw=%r", raw)
+
+    try:
+        port = int(raw)
+    except ValueError:
+        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.debug(
+            "_parse_port exit: not an integer; using default %d", DEFAULT_PORT
+        )
+        return DEFAULT_PORT
+
+    if port < MIN_PORT or port > MAX_PORT:
+        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.debug(
+            "_parse_port exit: port %d out of range %d..%d; using default %d",
+            port,
+            MIN_PORT,
+            MAX_PORT,
+            DEFAULT_PORT,
+        )
+        return DEFAULT_PORT
+
+    logger.debug("_parse_port exit: port=%d", port)
+    return port
+
+
 @dataclass(frozen=True)
 class Settings:
     """Immutable application settings built from environment variables.
@@ -121,12 +166,8 @@ def build_settings() -> Settings:
     cors_raw = _read_env("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS))
     log_raw = _read_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
 
-    port_raw = _read_env("PORT", "8000")
-    try:
-        port = int(port_raw)
-    except ValueError:
-        logger.warning("Invalid PORT '%s'; falling back to 8000", port_raw)
-        port = 8000
+    port_raw = _read_env("PORT", str(DEFAULT_PORT))
+    port = _parse_port(port_raw)
 
     return Settings(
         app_name=_read_env("APP_NAME", DEFAULT_APP_NAME),

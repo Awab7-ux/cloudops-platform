@@ -6,6 +6,8 @@ and invalid LOG_LEVEL fallback.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from app.core.config import (
@@ -281,4 +283,122 @@ class TestCustomValues:
 
         with pytest.raises(AttributeError):
             settings.app_name = "hacked"  # type: ignore[misc]
+
+
+class TestPortRange:
+    """PORT values are validated; out-of-range values fall back to 8000."""
+
+    def test_port_zero_falls_back_with_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        """PORT='0' is out of range; warns and falls back to 8000."""
+        monkeypatch.setenv("PORT", "0")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        with caplog.at_level(logging.WARNING):
+            settings = build_settings()
+
+        assert settings.port == 8000
+        assert "Invalid PORT '0'; falling back to 8000" in caplog.text
+
+    def test_port_negative_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='-1' is out of range; falls back to 8000."""
+        monkeypatch.setenv("PORT", "-1")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 8000
+
+    def test_port_above_max_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='65536' is out of range; falls back to 8000."""
+        monkeypatch.setenv("PORT", "65536")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 8000
+
+    def test_port_70000_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='70000' is out of range; falls back to 8000."""
+        monkeypatch.setenv("PORT", "70000")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 8000
+
+    def test_port_abc_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='abc' is not an integer; falls back to 8000."""
+        monkeypatch.setenv("PORT", "abc")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 8000
+
+    def test_port_min_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='1' is accepted unchanged."""
+        monkeypatch.setenv("PORT", "1")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 1
+
+    def test_port_max_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='65535' is accepted unchanged."""
+        monkeypatch.setenv("PORT", "65535")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 65535
+
+    def test_port_custom_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PORT='8080' is accepted unchanged."""
+        monkeypatch.setenv("PORT", "8080")
+        monkeypatch.delenv("APP_NAME", raising=False)
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        settings = build_settings()
+
+        assert settings.port == 8080
 
