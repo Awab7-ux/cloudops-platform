@@ -26,6 +26,7 @@ INTERNAL_ERROR_BODY: dict[str, str] = {"detail": "Internal Server Error"}
 """Safe JSON body returned for all unexpected 500 responses."""
 
 
+# Builds the shared opaque 500 JSON body used by middleware and handler.
 def build_error_response() -> JSONResponse:
     """Build a generic 500 ``JSONResponse`` with a safe, opaque body.
 
@@ -45,6 +46,7 @@ def build_error_response() -> JSONResponse:
 # ── Last-resort exception handler ────────────────────────────────────
 
 
+# Last-resort handler: logs the traceback, returns a safe opaque 500 body.
 async def _unhandled_exception_handler(
     request: Request,
     exc: Exception,
@@ -75,6 +77,7 @@ async def _unhandled_exception_handler(
     return build_error_response()
 
 
+# Registers the catch-all Exception handler as defence-in-depth.
 def register_exception_handlers(app: FastAPI) -> None:
     """Install global exception handlers on the FastAPI application.
 
