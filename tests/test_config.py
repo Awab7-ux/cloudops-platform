@@ -313,7 +313,9 @@ class TestPortRange:
 
 # PORT=0 is out of range and falls back.
     def test_port_zero_falls_back_with_warning(
-        self, monkeypatch: pytest.MonkeyPatch, caplog
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """PORT='0' is out of range; warns and falls back to 8000."""
         monkeypatch.setenv("PORT", "0")
@@ -432,4 +434,95 @@ class TestPortRange:
         settings = build_settings()
 
         assert settings.port == 8080
+
+
+# CORS origins are canonicalized and malformed entries are excluded.
+class TestCorsOriginValidation:
+    """CORS settings contain only usable, non-duplicated origins."""
+
+# Valid HTTP(S) origins are normalized and duplicate entries are removed.
+    def test_cors_origins_are_canonicalized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only canonical HTTP(S) origins remain in configured CORS origins."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS",
+            "HTTPS://APP.EXAMPLE.COM, https://good.example.com/, "
+            "javascript:alert(1), https://good.example.com, "
+            "http://localhost:3000",
+        )
+
+        settings = build_settings()
+
+        assert settings.cors_origins == (
+            "https://app.example.com",
+            "https://good.example.com",
+            "http://localhost:3000",
+        )
+
+# Invalid-only CORS configuration falls back to safe defaults.
+    def test_invalid_only_cors_origins_use_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An all-invalid CORS configuration uses the safe defaults."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS", "javascript:alert(1), https://bad.example.com/path"
+        )
+
+        settings = build_settings()
+
+        assert settings.cors_origins == DEFAULT_CORS_ORIGINS
+
+    # A single trailing slash is normalized away.
+    def test_cors_origin_trailing_slash_normalized(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A single trailing slash is removed from a valid origin."""
+        monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000/")
+
+        settings = build_settings()
+
+        assert settings.cors_origins == ("http://localhost:3000",)
+
+    # Invalid origins are dropped and produce one warning each.
+    def test_invalid_cors_origin_warns_and_valid_origin_remains(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Invalid CORS entries warn once while valid entries remain."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS", "https://good.example.com, ftp://bad.example.com"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.core.config"):
+            settings = build_settings()
+
+        assert settings.cors_origins == ("https://good.example.com",)
+        assert caplog.messages.count(
+            "Ignoring invalid CORS origin 'ftp://bad.example.com'"
+        ) == 1
+
+    # An all-invalid origin list falls back and reports the fallback.
+    def test_all_invalid_cors_origins_warns_before_defaults(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """All-invalid CORS entries warn before defaults are selected."""
+        monkeypatch.setenv(
+            "CORS_ORIGINS", "ftp://bad.example.com,not-an-origin"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.core.config"):
+            settings = build_settings()
+
+        assert settings.cors_origins == DEFAULT_CORS_ORIGINS
+        assert caplog.messages.count(
+            "Ignoring invalid CORS origin 'ftp://bad.example.com'"
+        ) == 1
+        assert caplog.messages.count(
+            "Ignoring invalid CORS origin 'not-an-origin'"
+        ) == 1
+        assert "No valid CORS origins configured; using defaults" in caplog.messages
 

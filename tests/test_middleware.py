@@ -8,13 +8,16 @@ exceptions.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 import pytest
-from starlette.types import Receive, Scope, Send
+from fastapi import Request
+from starlette.types import Message, Receive, Scope, Send
 from fastapi.testclient import TestClient
 
-from app.core.middleware import RequestIdMiddleware
+from app.core.errors import _unhandled_exception_handler
+from app.core.middleware import RequestIdMiddleware, _sanitize_request_id
 from app.main import create_app
 
 
@@ -377,4 +380,380 @@ class TestExceptionReRaisedAfterResponseStarted:
             asyncio.run(middleware(scope, receive, send))
 
         assert "Exception after response started" in caplog.text
+
+
+# Request-ID handling rejects control characters and duplicate response values.
+class TestRequestIdHeaderBoundary:
+    """Request-ID headers are safe and unambiguous at the ASGI boundary."""
+
+    # A trailing newline is not accepted as part of a request ID.
+    def test_trailing_newline_id_replaced(self) -> None:
+        """A request ID ending in a newline is replaced with a UUID4."""
+        request_id = _sanitize_request_id("safe\n")
+
+        assert request_id != "safe\n"
+        uuid.UUID(request_id)
+
+    # An inner response request ID is replaced rather than duplicated.
+    def test_response_has_one_request_id_header(self) -> None:
+        """The middleware emits exactly one X-Request-ID response header."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+        }
+        messages: list[Message] = []
+
+        async def inner_app(
+            inner_scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            """Send a response containing an existing request ID header."""
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"x-request-id", b"inner")],
+                }
+            )
+
+        async def receive() -> Message:
+            """Return an empty HTTP request body."""
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: Message) -> None:
+            """Collect ASGI messages sent by the middleware."""
+            messages.append(message)
+
+        asyncio.run(RequestIdMiddleware(inner_app)(scope, receive, send))
+
+        headers = messages[0]["headers"]
+        request_id_headers = [
+            header for header in headers  # type: ignore[union-attr]
+            if header[0] == b"x-request-id"
+        ]
+        assert len(request_id_headers) == 1
+        assert request_id_headers[0][1] != b"inner"
+
+
+# Request metadata and exception messages do not create unsafe log records.
+class TestSafeRequestLogging:
+    """Request logs escape untrusted metadata and omit exception messages."""
+
+    # A percent-encoded newline in a path remains on one log record line.
+    def test_access_log_escapes_newline_path(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Access logs escape a newline decoded into the request path."""
+        _clean_env(monkeypatch)
+        client = TestClient(create_app())
+
+        with caplog.at_level(logging.INFO, logger="app.core.middleware"):
+            response = client.get("/%0aINJECT")
+
+        access_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.core.middleware" and "-> 404" in record.getMessage()
+        ]
+        assert response.status_code == 404
+        assert access_logs
+        assert access_logs[-1].startswith(
+            "GET /\\nINJECT -> 404 ("
+        )
+        assert "GET /\nINJECT" not in access_logs[-1]
+
+    # A user-controlled exception message is omitted from application logs.
+    def test_exception_log_omits_exception_message(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unhandled exception logs include type but not exception text."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        # Route raises a message containing a newline and sensitive text.
+        @test_app.get("/log-error")
+        def raise_error() -> None:
+            """Raise an exception with user-controlled text."""
+            raise RuntimeError("secret\nINJECT")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        with caplog.at_level(logging.ERROR, logger="app.core.middleware"):
+            response = client.get("/log-error")
+
+        middleware_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+        ]
+        assert response.status_code == 500
+        assert any(
+            "exception_type=RuntimeError" in message
+            for message in middleware_logs
+        )
+        assert all("secret" not in message for message in middleware_logs)
+        assert all("INJECT" not in message for message in middleware_logs)
+
+
+# Tracebacks are available only in DEBUG records for all exception paths.
+class TestDebugTracebackLogging:
+    """Exception summaries stay safe while DEBUG retains tracebacks."""
+
+    # The last-resort handler includes exception info at DEBUG level.
+    def test_handler_debug_record_has_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The global handler emits exception info only at DEBUG."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/handler-error",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "root_path": "",
+        }
+        request = Request(scope)
+        exception = RuntimeError("handler secret")
+
+        with caplog.at_level(logging.DEBUG, logger="app.core.errors"):
+            import asyncio
+
+            asyncio.run(_unhandled_exception_handler(request, exception))
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.errors"
+        ]
+        debug_records = [record for record in records if record.exc_info]
+        assert debug_records
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("handler secret" not in record.getMessage() for record in records)
+
+    # The last-resort handler omits traceback info at INFO level.
+    def test_handler_info_record_has_no_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The global handler emits no exception info at INFO."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/handler-error",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "root_path": "",
+        }
+        request = Request(scope)
+        exception = RuntimeError("handler secret")
+
+        with caplog.at_level(logging.INFO, logger="app.core.errors"):
+            import asyncio
+
+            asyncio.run(_unhandled_exception_handler(request, exception))
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.errors"
+        ]
+        assert records
+        assert all(record.exc_info is None for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("handler secret" not in record.getMessage() for record in records)
+
+    # Middleware before response start includes exception info at DEBUG level.
+    def test_before_response_debug_record_has_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The pre-response middleware error retains a DEBUG traceback."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        # Route raises before sending a response.
+        @test_app.get("/before-error")
+        def raise_error() -> None:
+            """Raise an exception before response start."""
+            raise RuntimeError("before secret")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        with caplog.at_level(logging.DEBUG, logger="app.core.middleware"):
+            response = client.get("/before-error")
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+            and "Unhandled exception" in record.getMessage()
+        ]
+        debug_records = [record for record in records if record.exc_info]
+        assert response.status_code == 500
+        assert debug_records
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("before secret" not in record.getMessage() for record in records)
+
+    # Middleware before response start omits exception info at INFO level.
+    def test_before_response_info_record_has_no_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The pre-response middleware error has no INFO traceback."""
+        _clean_env(monkeypatch)
+        test_app = create_app()
+
+        # Route raises before sending a response.
+        @test_app.get("/before-error")
+        def raise_error() -> None:
+            """Raise an exception before response start."""
+            raise RuntimeError("before secret")
+
+        client = TestClient(test_app, raise_server_exceptions=False)
+        with caplog.at_level(logging.INFO, logger="app.core.middleware"):
+            response = client.get("/before-error")
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+            and "Unhandled exception" in record.getMessage()
+        ]
+        assert response.status_code == 500
+        assert records
+        assert all(record.exc_info is None for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("before secret" not in record.getMessage() for record in records)
+
+    # Middleware after response start includes exception info at DEBUG level.
+    def test_after_response_debug_record_has_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The post-response middleware error retains a DEBUG traceback."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/after-error",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "root_path": "",
+        }
+        messages: list[Message] = []
+
+        async def inner_app(
+            inner_scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            """Start a response and then raise an exception."""
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            raise RuntimeError("after secret")
+
+        async def receive() -> Message:
+            """Return an empty HTTP request body."""
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: Message) -> None:
+            """Collect ASGI response messages."""
+            messages.append(message)
+
+        middleware = RequestIdMiddleware(inner_app)
+        with caplog.at_level(logging.DEBUG, logger="app.core.middleware"):
+            with pytest.raises(RuntimeError, match="after secret"):
+                import asyncio
+
+                asyncio.run(middleware(scope, receive, send))
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+            and "Exception after response started" in record.getMessage()
+        ]
+        debug_records = [record for record in records if record.exc_info]
+        assert messages
+        assert debug_records
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("after secret" not in record.getMessage() for record in records)
+
+    # Middleware after response start omits exception info at INFO level.
+    def test_after_response_info_record_has_no_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The post-response middleware error has no INFO traceback."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/after-error",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "root_path": "",
+        }
+        messages: list[Message] = []
+
+        async def inner_app(
+            inner_scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            """Start a response and then raise an exception."""
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            raise RuntimeError("after secret")
+
+        async def receive() -> Message:
+            """Return an empty HTTP request body."""
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: Message) -> None:
+            """Collect ASGI response messages."""
+            messages.append(message)
+
+        middleware = RequestIdMiddleware(inner_app)
+        with caplog.at_level(logging.INFO, logger="app.core.middleware"):
+            with pytest.raises(RuntimeError, match="after secret"):
+                import asyncio
+
+                asyncio.run(middleware(scope, receive, send))
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "app.core.middleware"
+            and "Exception after response started" in record.getMessage()
+        ]
+        assert messages
+        assert records
+        assert all(record.exc_info is None for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
+        assert all("after secret" not in record.getMessage() for record in records)
 

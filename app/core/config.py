@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
+from urllib.parse import SplitResult, urlsplit
 
 from fastapi import Request
+
+from app.core.logging import safe_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,8 @@ DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
 )
 
 DEFAULT_LOG_LEVEL: str = "INFO"
+VALID_CORS_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+MAX_CORS_ORIGIN_LENGTH: int = 2048
 
 DEFAULT_PORT: int = 8000
 MIN_PORT: int = 1
@@ -48,7 +54,68 @@ def _read_env(name: str, default: str) -> str:
     return value.strip() if value and value.strip() else default
 
 
-# Splits CORS_ORIGINS and rejects wildcard '*' (falls back to safe defaults).
+# Canonicalizes a parsed CORS origin or returns None when it is unusable.
+def _canonicalize_cors_origin(parsed: SplitResult) -> str | None:
+    """Canonicalize one parsed HTTP(S) origin.
+
+    Args:
+        parsed: Parsed origin value.
+
+    Returns:
+        A canonical origin, or ``None`` for malformed input.
+    """
+    logger.debug("_canonicalize_cors_origin entry")
+    try:
+        hostname = parsed.hostname
+        port = parsed.port
+        if (
+            parsed.scheme.lower() not in VALID_CORS_SCHEMES
+            or not hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.netloc.endswith(":")
+            or not re.fullmatch(r"[A-Za-z0-9._:-]+", hostname)
+        ):
+            return None
+        host = hostname.lower()
+        host = f"[{host}]" if ":" in host else host
+        suffix = f":{port}" if port is not None else ""
+        return f"{parsed.scheme.lower()}://{host}{suffix}"
+    except ValueError:
+        return None
+    finally:
+        logger.debug("_canonicalize_cors_origin exit")
+
+
+# Normalizes one configured CORS origin or returns None when it is unusable.
+def _normalise_cors_origin(raw: str) -> str | None:
+    """Normalize one HTTP(S) origin.
+
+    Args:
+        raw: Trimmed origin value.
+
+    Returns:
+        A canonical origin, or ``None`` for malformed input.
+    """
+    logger.debug(
+        "_normalise_cors_origin entry: origin=%s", safe_log_value(raw)
+    )
+    try:
+        if not raw or len(raw) > MAX_CORS_ORIGIN_LENGTH:
+            return None
+        if any(char.isspace() or ord(char) < 32 for char in raw):
+            return None
+        return _canonicalize_cors_origin(urlsplit(raw))
+    except ValueError:
+        return None
+    finally:
+        logger.debug("_normalise_cors_origin exit")
+
+
+# Splits CORS_ORIGINS, rejects wildcard '*', and removes malformed entries.
 def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     """Parse a comma-separated CORS-origins string into a tuple.
 
@@ -61,17 +128,32 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     Returns:
         Tuple of origin strings, guaranteed to never contain ``"*"``.
     """
-    origins = tuple(o.strip() for o in raw.split(",") if o.strip())
+    origins: list[str] = []
+    seen: set[str] = set()
+    for raw_origin in raw.split(","):
+        candidate = raw_origin.strip()
+        if candidate == "*":
+            logger.warning(
+                "CORS_ORIGINS contains wildcard '*'; "
+                "falling back to defaults %s",
+                safe_log_value(DEFAULT_CORS_ORIGINS),
+            )
+            return DEFAULT_CORS_ORIGINS
+        origin = _normalise_cors_origin(candidate)
+        if origin is None:
+            logger.warning(
+                "Ignoring invalid CORS origin '%s'",
+                safe_log_value(candidate),
+            )
+            continue
+        if origin not in seen:
+            origins.append(origin)
+            seen.add(origin)
 
-    if "*" in origins:
-        logger.warning(
-            "CORS_ORIGINS contains wildcard '*'; "
-            "falling back to defaults %s",
-            DEFAULT_CORS_ORIGINS,
-        )
-        return DEFAULT_CORS_ORIGINS
-
-    return origins if origins else DEFAULT_CORS_ORIGINS
+    if origins:
+        return tuple(origins)
+    logger.warning("No valid CORS origins configured; using defaults")
+    return DEFAULT_CORS_ORIGINS
 
 
 # Upper-cases and validates LOG_LEVEL; falls back to INFO when invalid.
@@ -90,7 +172,7 @@ def _parse_log_level(raw: str) -> str:
     if level not in valid_levels:
         logger.warning(
             "Invalid LOG_LEVEL '%s'; falling back to INFO",
-            raw,
+            safe_log_value(raw),
         )
         return DEFAULT_LOG_LEVEL
 
@@ -112,19 +194,23 @@ def _parse_port(raw: str) -> int:
     Returns:
         A valid port number, or ``DEFAULT_PORT`` when *raw* is unusable.
     """
-    logger.debug("_parse_port entry: raw=%r", raw)
+    logger.debug("_parse_port entry: raw=%s", safe_log_value(raw))
 
     try:
         port = int(raw)
     except ValueError:
-        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.warning(
+            "Invalid PORT '%s'; falling back to 8000", safe_log_value(raw)
+        )
         logger.debug(
             "_parse_port exit: not an integer; using default %d", DEFAULT_PORT
         )
         return DEFAULT_PORT
 
     if port < MIN_PORT or port > MAX_PORT:
-        logger.warning("Invalid PORT '%s'; falling back to 8000", raw)
+        logger.warning(
+            "Invalid PORT '%s'; falling back to 8000", safe_log_value(raw)
+        )
         logger.debug(
             "_parse_port exit: port %d out of range %d..%d; using default %d",
             port,
