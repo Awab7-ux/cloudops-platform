@@ -13,10 +13,13 @@ so that existing tests can continue to import them from ``app.main``.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import Engine
 
 from app.api.routes.system import router as system_router
 from app.core.config import (
@@ -27,6 +30,8 @@ from app.core.config import (
 from app.core.errors import register_exception_handlers
 from app.core.logging import safe_log_value, setup_logging
 from app.core.middleware import RequestIdMiddleware
+from app.db.base import Base
+from app.db.session import create_db_engine, create_session_factory
 
 # Re-exported so existing tests that do
 #   ``from app.main import DEFAULT_APP_NAME, DEFAULT_APP_VERSION``
@@ -34,6 +39,28 @@ from app.core.middleware import RequestIdMiddleware
 __all__ = ["DEFAULT_APP_NAME", "DEFAULT_APP_VERSION", "create_app", "app"]
 
 logger = logging.getLogger(__name__)
+
+
+# Creates temporary metadata tables and disposes the application engine.
+@asynccontextmanager
+async def _database_lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Manage database startup and shutdown for one application instance.
+
+    Args:
+        application: FastAPI application holding the database engine.
+
+    Yields:
+        Control to the running application after tables are created.
+    """
+    logger.debug("_database_lifespan entry")
+    engine: Engine = application.state.engine
+    # WHY: temporary table creation keeps local setup simple until migrations exist.
+    Base.metadata.create_all(bind=engine)
+    try:
+        yield
+    finally:
+        engine.dispose()
+        logger.debug("_database_lifespan exit: engine_disposed=%s", True)
 
 
 # Wires config, logging, middleware, CORS, handlers, and routers into one FastAPI app.
@@ -66,15 +93,20 @@ def create_app() -> FastAPI:
     settings = build_settings()
 
     setup_logging(settings.log_level)
+    engine = create_db_engine(settings.database_url)
+    session_factory = create_session_factory(engine)
 
     application = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        lifespan=_database_lifespan,
     )
 
     # Store settings in app.state for dependency injection via
     # get_settings(request) — avoids module-level singletons.
     application.state.settings = settings
+    application.state.engine = engine
+    application.state.session_factory = session_factory
 
     # --- Exception handlers (innermost — part of the ASGI app) ---
     register_exception_handlers(application)
