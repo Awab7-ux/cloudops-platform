@@ -18,6 +18,7 @@ from app.core.middleware import RequestIdMiddleware
 from app.main import create_app
 
 
+# Removes app env vars so each test starts clean.
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all app-specific env vars so each test starts clean."""
     for var in ("APP_NAME", "APP_VERSION", "PORT", "CORS_ORIGINS", "LOG_LEVEL"):
@@ -27,9 +28,11 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ── X-Request-ID: generation ──────────────────────────────────────────
 
 
+# When no X-Request-ID is sent, the middleware generates a UUID4.
 class TestRequestIdGeneration:
     """When no X-Request-ID is sent, the middleware generates a UUID4."""
 
+# A missing X-Request-ID header results in a generated UUID4.
     def test_response_contains_generated_request_id(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -44,6 +47,7 @@ class TestRequestIdGeneration:
         # Must be a valid UUID.
         uuid.UUID(rid)
 
+# Each request without an ID receives a unique UUID.
     def test_different_requests_get_different_ids(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -60,9 +64,11 @@ class TestRequestIdGeneration:
 # ── X-Request-ID: echo ────────────────────────────────────────────────
 
 
+# A valid incoming X-Request-ID is echoed back unchanged.
 class TestRequestIdEcho:
     """A valid incoming X-Request-ID is echoed back unchanged."""
 
+# A conforming ID is echoed as-is.
     def test_valid_id_echoed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -81,9 +87,11 @@ class TestRequestIdEcho:
 # ── X-Request-ID: sanitisation ────────────────────────────────────────
 
 
+# Invalid or oversized IDs are rejected and replaced with a UUID4.
 class TestRequestIdSanitisation:
     """Invalid or oversized IDs are rejected and replaced with a UUID4."""
 
+# An ID with spaces or special characters is replaced.
     def test_special_chars_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -99,6 +107,7 @@ class TestRequestIdSanitisation:
         assert rid != "bad id with spaces!"
         uuid.UUID(rid)  # Must be a valid UUID4
 
+# An ID longer than 64 characters is replaced.
     def test_oversized_id_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -115,6 +124,7 @@ class TestRequestIdSanitisation:
         assert rid != long_id
         uuid.UUID(rid)
 
+# An ID of exactly 64 characters is accepted.
     def test_exactly_64_chars_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -129,6 +139,7 @@ class TestRequestIdSanitisation:
 
         assert response.headers["x-request-id"] == exact_id
 
+# An empty ID is replaced with a UUID4.
     def test_empty_id_replaced(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -148,9 +159,11 @@ class TestRequestIdSanitisation:
 # ── Unexpected-error response shape ───────────────────────────────────
 
 
+# Unhandled exceptions return a consistent safe 500 shape.
 class TestUnexpectedErrorShape:
     """Unhandled exceptions produce a consistent, safe JSON response."""
 
+# An unhandled exception returns a generic 500 JSON body.
     def test_500_returns_generic_detail(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -158,8 +171,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise RuntimeError("secret internal details")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -168,6 +183,7 @@ class TestUnexpectedErrorShape:
         assert response.status_code == 500
         assert response.json() == {"detail": "Internal Server Error"}
 
+# The 500 body never leaks the exception traceback.
     def test_500_does_not_leak_traceback(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -176,8 +192,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise ValueError("do not expose this")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -186,6 +204,7 @@ class TestUnexpectedErrorShape:
         assert "ValueError" not in response.text
         assert "do not expose this" not in response.text
 
+# The 500 response includes the X-Request-ID header.
     def test_500_has_request_id_header(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -193,8 +212,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise RuntimeError("boom")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -204,6 +225,7 @@ class TestUnexpectedErrorShape:
         assert rid is not None
         uuid.UUID(rid)
 
+# The 500 response keeps CORS headers for an allowed origin.
     def test_500_has_cors_headers_for_allowed_origin(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -211,8 +233,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise RuntimeError("boom")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -227,6 +251,7 @@ class TestUnexpectedErrorShape:
             == "http://localhost:3000"
         )
 
+# The 500 body does not contain the exception text.
     def test_500_body_does_not_contain_exception_text(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -234,8 +259,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise RuntimeError("boom")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -246,6 +273,7 @@ class TestUnexpectedErrorShape:
         # must never appear in the response body sent to the client.
         assert "boom" not in response.text
 
+# A 500 for an unknown origin has no CORS allow header.
     def test_500_unknown_origin_has_no_cors_header(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -253,8 +281,10 @@ class TestUnexpectedErrorShape:
         _clean_env(monkeypatch)
         test_app = create_app()
 
+# Trigger endpoint that raises RuntimeError to exercise the 500 boundary.
         @test_app.get("/trigger-error")
         def _raise() -> None:
+            """Triggers RuntimeError to exercise the 500 error boundary."""
             raise RuntimeError("boom")
 
         client = TestClient(test_app, raise_server_exceptions=False)
@@ -272,12 +302,14 @@ class TestUnexpectedErrorShape:
 # ── Error boundary: response already started ──────────────────────────
 
 
+# Once the response started, failures are logged and re-raised.
 class TestExceptionReRaisedAfterResponseStarted:
     """Once ``http.response.start`` has been sent the response cannot be
     replaced, so the middleware must log the failure and re-raise rather
     than swallow it.
     """
 
+# ASGI app that starts the response then raises RuntimeError.
     async def _inner_app_that_starts_then_raises(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
@@ -304,6 +336,7 @@ class TestExceptionReRaisedAfterResponseStarted:
         )
         raise RuntimeError("boom after start")
 
+# An exception raised after the response started is re-raised.
     def test_exception_is_re_raised_after_response_started(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -328,10 +361,14 @@ class TestExceptionReRaisedAfterResponseStarted:
             "root_path": "",
         }
 
+# ASGI receive returning an empty HTTP request body.
         async def receive() -> dict:
+            """ASGI receive returning an empty HTTP request body."""
             return {"type": "http.request", "body": b"", "more_body": False}
 
+# ASGI send no-op used to run the middleware directly.
         async def send(message: dict) -> None:
+            """ASGI send no-op used to run the middleware directly."""
             pass
 
         middleware = RequestIdMiddleware(self._inner_app_that_starts_then_raises)
