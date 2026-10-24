@@ -11,10 +11,10 @@ import asyncio
 import uuid
 
 import pytest
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 from fastapi.testclient import TestClient
 
-from app.core.middleware import RequestIdMiddleware
+from app.core.middleware import RequestIdMiddleware, _sanitize_request_id
 from app.main import create_app
 
 
@@ -377,4 +377,58 @@ class TestExceptionReRaisedAfterResponseStarted:
             asyncio.run(middleware(scope, receive, send))
 
         assert "Exception after response started" in caplog.text
+
+
+# Request-ID handling rejects control characters and duplicate response values.
+class TestRequestIdHeaderBoundary:
+    """Request-ID headers are safe and unambiguous at the ASGI boundary."""
+
+# A trailing newline is not accepted as part of a request ID.
+    def test_trailing_newline_id_replaced(self) -> None:
+        """A request ID ending in a newline is replaced with a UUID4."""
+        request_id = _sanitize_request_id("safe" + chr(10))
+
+        assert request_id != "safe" + chr(10)
+        uuid.UUID(request_id)
+
+# An inner response request ID is replaced rather than duplicated.
+    def test_response_has_one_request_id_header(self) -> None:
+        """The middleware emits exactly one X-Request-ID response header."""
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+        }
+        messages: list[Message] = []
+
+        async def inner_app(
+            inner_scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            """Send a response containing an existing request ID header."""
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"x-request-id", b"inner")],
+                }
+            )
+
+        async def receive() -> Message:
+            """Return an empty HTTP request body."""
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: Message) -> None:
+            """Collect ASGI messages sent by the middleware."""
+            messages.append(message)
+
+        asyncio.run(RequestIdMiddleware(inner_app)(scope, receive, send))
+
+        headers = messages[0]["headers"]
+        request_id_headers = [
+            header for header in headers  # type: ignore[union-attr]
+            if header[0] == b"x-request-id"
+        ]
+        assert len(request_id_headers) == 1
+        assert request_id_headers[0][1] != b"inner"
 

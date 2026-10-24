@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Accept only safe characters, bounded length — prevents header
 # injection and log-line abuse.
-_VALID_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_VALID_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 # Returns raw X-Request-ID if safe, else a fresh UUID4.
@@ -40,7 +40,7 @@ def _sanitize_request_id(raw: str | None) -> str:
     Returns:
         A validated request-ID string.
     """
-    if raw and _VALID_ID_RE.match(raw):
+    if raw and _VALID_ID_RE.fullmatch(raw):
         return raw
     return str(uuid.uuid4())
 
@@ -134,7 +134,7 @@ class RequestIdMiddleware:
                 response_started = True
                 status_code = message["status"]
                 headers = MutableHeaders(scope=message)
-                headers.append("x-request-id", request_id)
+                headers["x-request-id"] = request_id
             await send(message)
 
         try:
