@@ -8,6 +8,7 @@ runtime validation and automatic OpenAPI documentation.
 from pydantic import BaseModel
 
 
+# Pydantic model for GET / response (name, message).
 class RootResponse(BaseModel):
     """Response body for ``GET /``.
 
@@ -20,6 +21,7 @@ class RootResponse(BaseModel):
     message: str
 
 
+# Pydantic model for GET /health response (status).
 class HealthResponse(BaseModel):
     """Response body for ``GET /health``.
 
@@ -31,6 +33,7 @@ class HealthResponse(BaseModel):
     status: str
 
 
+# Pydantic model for GET /version response (name, version).
 class VersionResponse(BaseModel):
     """Response body for ``GET /version``.
 
