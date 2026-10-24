@@ -18,6 +18,7 @@ from app.schemas.system import HealthResponse, RootResponse, VersionResponse
 logger = logging.getLogger(__name__)
 
 
+# Builds per-request response payloads from frozen Settings; holds no mutable state.
 class SystemService:
     """Builds response payloads from application settings.
 
@@ -28,6 +29,7 @@ class SystemService:
         _settings: The frozen application settings.
     """
 
+# Stores the injected Settings.
     def __init__(self, settings: Settings) -> None:
         """Initialise the service with application settings.
 
@@ -36,6 +38,7 @@ class SystemService:
         """
         self._settings = settings
 
+# Builds RootResponse from settings.
     def get_root(self) -> RootResponse:
         """Build the root-endpoint response.
 
@@ -52,6 +55,7 @@ class SystemService:
             message=f"{self._settings.app_name} API is running.",
         )
 
+# Builds HealthResponse with status ok.
     def get_health(self) -> HealthResponse:
         """Build the health-check response.
 
@@ -61,6 +65,7 @@ class SystemService:
         logger.debug("Health check requested")
         return HealthResponse(status="ok")
 
+# Builds VersionResponse from settings.
     def get_version(self) -> VersionResponse:
         """Build the version-endpoint response.
 
@@ -78,6 +83,7 @@ class SystemService:
         )
 
 
+# FastAPI dependency: resolves Settings then constructs SystemService.
 def get_system_service(
     settings: Settings = Depends(get_settings),
 ) -> SystemService:
