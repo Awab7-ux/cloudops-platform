@@ -405,6 +405,7 @@ class TestRequestIdHeaderBoundary:
         }
         messages: list[Message] = []
 
+        # Sends a response and raises after the response has started.
         async def inner_app(
             inner_scope: Scope, receive: Receive, send: Send
         ) -> None:
@@ -417,10 +418,12 @@ class TestRequestIdHeaderBoundary:
                 }
             )
 
+        # Returns an empty HTTP request body to the middleware.
         async def receive() -> Message:
             """Return an empty HTTP request body."""
             return {"type": "http.request", "body": b"", "more_body": False}
 
+        # Collects response messages emitted by the middleware.
         async def send(message: Message) -> None:
             """Collect ASGI messages sent by the middleware."""
             messages.append(message)
@@ -654,6 +657,7 @@ class TestDebugTracebackLogging:
         }
         messages: list[Message] = []
 
+        # Sends a response and raises after the response has started.
         async def inner_app(
             inner_scope: Scope, receive: Receive, send: Send
         ) -> None:
@@ -667,10 +671,12 @@ class TestDebugTracebackLogging:
             )
             raise RuntimeError("after secret")
 
+        # Returns an empty HTTP request body to the middleware.
         async def receive() -> Message:
             """Return an empty HTTP request body."""
             return {"type": "http.request", "body": b"", "more_body": False}
 
+        # Collects response messages emitted by the middleware.
         async def send(message: Message) -> None:
             """Collect ASGI response messages."""
             messages.append(message)
@@ -714,6 +720,7 @@ class TestDebugTracebackLogging:
         }
         messages: list[Message] = []
 
+        # Sends a response and raises after the response has started.
         async def inner_app(
             inner_scope: Scope, receive: Receive, send: Send
         ) -> None:
@@ -727,10 +734,12 @@ class TestDebugTracebackLogging:
             )
             raise RuntimeError("after secret")
 
+        # Returns an empty HTTP request body to the middleware.
         async def receive() -> Message:
             """Return an empty HTTP request body."""
             return {"type": "http.request", "body": b"", "more_body": False}
 
+        # Collects response messages emitted by the middleware.
         async def send(message: Message) -> None:
             """Collect ASGI response messages."""
             messages.append(message)
