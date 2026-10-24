@@ -50,6 +50,7 @@ def _read_env(name: str, default: str) -> str:
     Returns:
         The trimmed environment value, or *default*.
     """
+    logger.debug("_read_env entry: name=%s", safe_log_value(name))
     value = os.getenv(name)
     return value.strip() if value and value.strip() else default
 
@@ -128,6 +129,7 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     Returns:
         Tuple of origin strings, guaranteed to never contain ``"*"``.
     """
+    logger.debug("_parse_cors_origins entry: raw=%s", safe_log_value(raw))
     origins: list[str] = []
     seen: set[str] = set()
     for raw_origin in raw.split(","):
@@ -138,6 +140,7 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
                 "falling back to defaults %s",
                 safe_log_value(DEFAULT_CORS_ORIGINS),
             )
+            logger.debug("_parse_cors_origins exit: wildcard_defaults=%s", True)
             return DEFAULT_CORS_ORIGINS
         origin = _normalise_cors_origin(candidate)
         if origin is None:
@@ -151,8 +154,10 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
             seen.add(origin)
 
     if origins:
+        logger.debug("_parse_cors_origins exit: origin_count=%d", len(origins))
         return tuple(origins)
     logger.warning("No valid CORS origins configured; using defaults")
+    logger.debug("_parse_cors_origins exit: default_origins=%s", True)
     return DEFAULT_CORS_ORIGINS
 
 
@@ -166,6 +171,7 @@ def _parse_log_level(raw: str) -> str:
     Returns:
         Upper-cased log level.  Falls back to ``"INFO"`` for invalid values.
     """
+    logger.debug("_parse_log_level entry: raw=%s", safe_log_value(raw))
     level = raw.strip().upper()
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -174,8 +180,10 @@ def _parse_log_level(raw: str) -> str:
             "Invalid LOG_LEVEL '%s'; falling back to INFO",
             safe_log_value(raw),
         )
+        logger.debug("_parse_log_level exit: default_level=%s", DEFAULT_LOG_LEVEL)
         return DEFAULT_LOG_LEVEL
 
+    logger.debug("_parse_log_level exit: level=%s", safe_log_value(level))
     return level
 
 
@@ -254,6 +262,7 @@ def build_settings() -> Settings:
     Returns:
         A frozen ``Settings`` dataclass.
     """
+    logger.debug("build_settings entry")
     cors_raw = _read_env("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS))
     log_raw = _read_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
 
@@ -283,5 +292,6 @@ def get_settings(request: Request) -> Settings:
     Returns:
         The application ``Settings`` instance.
     """
+    logger.debug("get_settings entry")
     return request.app.state.settings
 
