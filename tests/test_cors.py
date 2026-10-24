@@ -84,6 +84,7 @@ class TestCorsBlocked:
 class TestCorsEnvOverride:
     """CORS_ORIGINS env var overrides the compiled-in defaults."""
 
+    # A custom origin is accepted when configured through the environment.
     def test_custom_origin_allowed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
