@@ -39,6 +39,7 @@ def build_error_response() -> JSONResponse:
     Returns:
         A 500 ``JSONResponse`` with ``{"detail": "Internal Server Error"}``.
     """
+    logger.debug("build_error_response entry")
     return JSONResponse(
         status_code=500,
         content=INTERNAL_ERROR_BODY,
@@ -71,6 +72,7 @@ async def _unhandled_exception_handler(
     Returns:
         A 500 ``JSONResponse`` with ``{"detail": "Internal Server Error"}``.
     """
+    logger.debug("_unhandled_exception_handler entry")
     logger.error(
         "Unhandled exception on method=%s path=%s exception_type=%s",
         safe_log_value(request.method),
@@ -94,5 +96,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     Args:
         app: The FastAPI application instance.
     """
+    logger.debug("register_exception_handlers entry")
     app.add_exception_handler(Exception, _unhandled_exception_handler)
+    logger.debug("register_exception_handlers exit")
 
