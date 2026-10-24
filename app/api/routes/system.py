@@ -15,6 +15,7 @@ from app.services.system import SystemService, get_system_service
 router = APIRouter(tags=["system"])
 
 
+# HTTP handler for GET / — delegates payload building to SystemService.
 @router.get("/", response_model=RootResponse, status_code=200)
 def read_root(
     service: SystemService = Depends(get_system_service),
@@ -30,6 +31,7 @@ def read_root(
     return service.get_root()
 
 
+# HTTP handler for GET /health — delegates to SystemService.
 @router.get("/health", response_model=HealthResponse, status_code=200)
 def read_health(
     service: SystemService = Depends(get_system_service),
@@ -45,6 +47,7 @@ def read_health(
     return service.get_health()
 
 
+# HTTP handler for GET /version — delegates to SystemService.
 @router.get("/version", response_model=VersionResponse, status_code=200)
 def read_version(
     service: SystemService = Depends(get_system_service),
