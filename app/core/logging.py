@@ -13,6 +13,8 @@ import logging
 import sys
 from contextvars import ContextVar
 
+logger = logging.getLogger(__name__)
+
 # Shared context variable — written by RequestIdMiddleware, read by the
 # log filter.  Default "-" is used for log lines emitted outside a
 # request context (e.g. during startup).
@@ -36,6 +38,7 @@ def safe_log_value(value: object) -> str:
     Returns:
         An ASCII-escaped value truncated to ``MAX_LOG_VALUE_LENGTH``.
     """
+    logger.debug("safe_log_value entry: value_type=%s", type(value).__name__)
     # WHY unicode_escape: it turns newlines and other controls into literals.
     escaped = str(value).encode("unicode_escape", "backslashreplace").decode("ascii")
     if len(escaped) > MAX_LOG_VALUE_LENGTH:
@@ -79,11 +82,13 @@ def setup_logging(log_level: str) -> None:
         log_level: A Python logging level name (e.g. ``"INFO"``,
             ``"DEBUG"``).
     """
+    logger.debug("setup_logging entry: log_level=%s", safe_log_value(log_level))
     root = logging.getLogger()
     root.setLevel(log_level)
 
     # Avoid adding duplicate handlers across multiple create_app() calls.
     if any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
+        logger.debug("setup_logging exit: handler_exists=%s", True)
         return
 
     handler = logging.StreamHandler(sys.stderr)
@@ -91,4 +96,5 @@ def setup_logging(log_level: str) -> None:
     handler.addFilter(_RequestIdFilter())
     setattr(handler, _HANDLER_ATTR, True)
     root.addHandler(handler)
+    logger.debug("setup_logging exit: handler_added=%s", True)
 
