@@ -386,15 +386,15 @@ class TestExceptionReRaisedAfterResponseStarted:
 class TestRequestIdHeaderBoundary:
     """Request-ID headers are safe and unambiguous at the ASGI boundary."""
 
-# A trailing newline is not accepted as part of a request ID.
+    # A trailing newline is not accepted as part of a request ID.
     def test_trailing_newline_id_replaced(self) -> None:
         """A request ID ending in a newline is replaced with a UUID4."""
-        request_id = _sanitize_request_id("safe" + chr(10))
+        request_id = _sanitize_request_id("safe\n")
 
-        assert request_id != "safe" + chr(10)
+        assert request_id != "safe\n"
         uuid.UUID(request_id)
 
-# An inner response request ID is replaced rather than duplicated.
+    # An inner response request ID is replaced rather than duplicated.
     def test_response_has_one_request_id_header(self) -> None:
         """The middleware emits exactly one X-Request-ID response header."""
         scope: Scope = {
@@ -440,7 +440,7 @@ class TestRequestIdHeaderBoundary:
 class TestSafeRequestLogging:
     """Request logs escape untrusted metadata and omit exception messages."""
 
-# A percent-encoded newline in a path remains on one log record line.
+    # A percent-encoded newline in a path remains on one log record line.
     def test_access_log_escapes_newline_path(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -459,11 +459,11 @@ class TestSafeRequestLogging:
         assert response.status_code == 404
         assert access_logs
         assert access_logs[-1].startswith(
-            "GET /" + chr(92) + "nINJECT -> 404 ("
+            "GET /\\nINJECT -> 404 ("
         )
-        assert "GET /" + chr(10) + "INJECT" not in access_logs[-1]
+        assert "GET /\nINJECT" not in access_logs[-1]
 
-# A user-controlled exception message is omitted from application logs.
+    # A user-controlled exception message is omitted from application logs.
     def test_exception_log_omits_exception_message(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -475,7 +475,7 @@ class TestSafeRequestLogging:
         @test_app.get("/log-error")
         def raise_error() -> None:
             """Raise an exception with user-controlled text."""
-            raise RuntimeError("secret" + chr(10) + "INJECT")
+            raise RuntimeError("secret\nINJECT")
 
         client = TestClient(test_app, raise_server_exceptions=False)
         with caplog.at_level(logging.ERROR, logger="app.core.middleware"):
@@ -487,7 +487,10 @@ class TestSafeRequestLogging:
             if record.name == "app.core.middleware"
         ]
         assert response.status_code == 500
-        assert any("exception_type=RuntimeError" in message for message in middleware_logs)
+        assert any(
+            "exception_type=RuntimeError" in message
+            for message in middleware_logs
+        )
         assert all("secret" not in message for message in middleware_logs)
         assert all("INJECT" not in message for message in middleware_logs)
 
@@ -496,7 +499,7 @@ class TestSafeRequestLogging:
 class TestDebugTracebackLogging:
     """Exception summaries stay safe while DEBUG retains tracebacks."""
 
-# The last-resort handler includes exception info at DEBUG level.
+    # The last-resort handler includes exception info at DEBUG level.
     def test_handler_debug_record_has_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -526,10 +529,13 @@ class TestDebugTracebackLogging:
         ]
         debug_records = [record for record in records if record.exc_info]
         assert debug_records
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("handler secret" not in record.getMessage() for record in records)
 
-# The last-resort handler omits traceback info at INFO level.
+    # The last-resort handler omits traceback info at INFO level.
     def test_handler_info_record_has_no_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -559,10 +565,13 @@ class TestDebugTracebackLogging:
         ]
         assert records
         assert all(record.exc_info is None for record in records)
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("handler secret" not in record.getMessage() for record in records)
 
-# Middleware before response start includes exception info at DEBUG level.
+    # Middleware before response start includes exception info at DEBUG level.
     def test_before_response_debug_record_has_traceback(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -589,10 +598,13 @@ class TestDebugTracebackLogging:
         debug_records = [record for record in records if record.exc_info]
         assert response.status_code == 500
         assert debug_records
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("before secret" not in record.getMessage() for record in records)
 
-# Middleware before response start omits exception info at INFO level.
+    # Middleware before response start omits exception info at INFO level.
     def test_before_response_info_record_has_no_traceback(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -619,10 +631,13 @@ class TestDebugTracebackLogging:
         assert response.status_code == 500
         assert records
         assert all(record.exc_info is None for record in records)
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("before secret" not in record.getMessage() for record in records)
 
-# Middleware after response start includes exception info at DEBUG level.
+    # Middleware after response start includes exception info at DEBUG level.
     def test_after_response_debug_record_has_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -676,10 +691,13 @@ class TestDebugTracebackLogging:
         debug_records = [record for record in records if record.exc_info]
         assert messages
         assert debug_records
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("after secret" not in record.getMessage() for record in records)
 
-# Middleware after response start omits exception info at INFO level.
+    # Middleware after response start omits exception info at INFO level.
     def test_after_response_info_record_has_no_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -733,6 +751,9 @@ class TestDebugTracebackLogging:
         assert messages
         assert records
         assert all(record.exc_info is None for record in records)
-        assert any("exception_type=RuntimeError" in record.getMessage() for record in records)
+        assert any(
+            "exception_type=RuntimeError" in record.getMessage()
+            for record in records
+        )
         assert all("after secret" not in record.getMessage() for record in records)
 

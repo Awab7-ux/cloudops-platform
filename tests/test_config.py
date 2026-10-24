@@ -313,7 +313,9 @@ class TestPortRange:
 
 # PORT=0 is out of range and falls back.
     def test_port_zero_falls_back_with_warning(
-        self, monkeypatch: pytest.MonkeyPatch, caplog
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """PORT='0' is out of range; warns and falls back to 8000."""
         monkeypatch.setenv("PORT", "0")
@@ -519,6 +521,8 @@ class TestCorsOriginValidation:
         assert caplog.messages.count(
             "Ignoring invalid CORS origin 'ftp://bad.example.com'"
         ) == 1
-        assert caplog.messages.count("Ignoring invalid CORS origin 'not-an-origin'") == 1
+        assert caplog.messages.count(
+            "Ignoring invalid CORS origin 'not-an-origin'"
+        ) == 1
         assert "No valid CORS origins configured; using defaults" in caplog.messages
 
