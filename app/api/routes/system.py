@@ -59,7 +59,6 @@ def read_health(
     return service.get_health()
 
 
-# HTTP handler for GET /version — delegates to SystemService.
 # HTTP handler for GET /ready; database work stays in ReadinessService.
 @router.get("/ready", response_model=ReadyResponse, status_code=200)
 def read_ready(
@@ -79,6 +78,7 @@ def read_ready(
     return response
 
 
+# HTTP handler for GET /version — delegates to SystemService.
 @router.get("/version", response_model=VersionResponse, status_code=200)
 def read_version(
     service: SystemService = Depends(get_system_service),
