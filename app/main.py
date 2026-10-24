@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
+from app.api.routes.applications import router as applications_router
 from app.api.routes.system import router as system_router
 from app.core.config import (
     DEFAULT_APP_NAME,
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
 
     # --- Routers ---
     application.include_router(system_router)
+    application.include_router(applications_router)
 
     # --- Middleware (added bottom-up; last add_middleware = outermost) ---
     # WHY this order: Starlette makes the *last* ``add_middleware``
