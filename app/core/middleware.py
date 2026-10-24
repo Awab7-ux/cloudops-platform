@@ -40,6 +40,7 @@ def _sanitize_request_id(raw: str | None) -> str:
     Returns:
         A validated request-ID string.
     """
+    logger.debug("_sanitize_request_id entry: raw=%s", safe_log_value(raw))
     if raw and _VALID_ID_RE.fullmatch(raw):
         return raw
     return str(uuid.uuid4())
@@ -78,6 +79,7 @@ class RequestIdMiddleware:
         Args:
             app: The inner ASGI application.
         """
+        logger.debug("RequestIdMiddleware.__init__ entry")
         self.app = app
 
 # Routes non-HTTP scopes through; for HTTP runs the ID/error-boundary flow.
@@ -94,6 +96,10 @@ class RequestIdMiddleware:
             receive: Callable to receive ASGI events.
             send: Callable to send ASGI events.
         """
+        logger.debug(
+            "RequestIdMiddleware.__call__ entry: scope_type=%s",
+            safe_log_value(scope["type"]),
+        )
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -133,6 +139,10 @@ class RequestIdMiddleware:
                 message: The ASGI send message.
             """
             nonlocal status_code, response_started
+            logger.debug(
+                "send_with_request_id entry: message_type=%s",
+                safe_log_value(message["type"]),
+            )
             if message["type"] == "http.response.start":
                 response_started = True
                 status_code = message["status"]

@@ -7,10 +7,14 @@ serialisation, and status codes.  All business logic is delegated to
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 
 from app.schemas.system import HealthResponse, RootResponse, VersionResponse
 from app.services.system import SystemService, get_system_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["system"])
 
@@ -28,6 +32,7 @@ def read_root(
     Returns:
         ``RootResponse`` with the service name and a running message.
     """
+    logger.debug("read_root entry")
     return service.get_root()
 
 
@@ -44,6 +49,7 @@ def read_health(
     Returns:
         ``HealthResponse`` with status ``"ok"``.
     """
+    logger.debug("read_health entry")
     return service.get_health()
 
 
@@ -60,5 +66,6 @@ def read_version(
     Returns:
         ``VersionResponse`` with the service name and version.
     """
+    logger.debug("read_version entry")
     return service.get_version()
 

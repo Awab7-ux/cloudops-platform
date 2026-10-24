@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     Returns:
         A fully configured ``FastAPI`` application instance.
     """
+    logger.debug("create_app entry")
     settings = build_settings()
 
     setup_logging(settings.log_level)
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
         safe_log_value(settings.cors_origins),
     )
 
+    logger.debug("create_app exit")
     return application
 
 
