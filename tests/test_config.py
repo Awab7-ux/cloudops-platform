@@ -19,9 +19,11 @@ from app.core.config import (
 )
 
 
+# Verifies Settings fall back to defaults when env vars are unset.
 class TestDefaults:
     """Settings use correct defaults when no env vars are set."""
 
+# APP_NAME defaults to DEFAULT_APP_NAME.
     def test_app_name_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """APP_NAME defaults to the platform name constant."""
         monkeypatch.delenv("APP_NAME", raising=False)
@@ -34,6 +36,7 @@ class TestDefaults:
 
         assert settings.app_name == DEFAULT_APP_NAME
 
+# APP_VERSION defaults to DEFAULT_APP_VERSION.
     def test_app_version_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """APP_VERSION defaults to the initial semver."""
         monkeypatch.delenv("APP_NAME", raising=False)
@@ -46,6 +49,7 @@ class TestDefaults:
 
         assert settings.app_version == DEFAULT_APP_VERSION
 
+# PORT defaults to 8000.
     def test_port_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PORT defaults to 8000."""
         monkeypatch.delenv("APP_NAME", raising=False)
@@ -58,6 +62,7 @@ class TestDefaults:
 
         assert settings.port == 8000
 
+# CORS_ORIGINS defaults to the two localhost origins.
     def test_cors_origins_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -72,6 +77,7 @@ class TestDefaults:
 
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
 
+# LOG_LEVEL defaults to INFO.
     def test_log_level_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -87,9 +93,11 @@ class TestDefaults:
         assert settings.log_level == DEFAULT_LOG_LEVEL
 
 
+# Empty or whitespace-only env values fall back to defaults.
 class TestEmptyAndWhitespace:
     """Empty or whitespace-only values fall back to defaults."""
 
+# Empty APP_NAME falls back to the default.
     def test_empty_app_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """An empty APP_NAME falls back to the default."""
         monkeypatch.setenv("APP_NAME", "")
@@ -102,6 +110,7 @@ class TestEmptyAndWhitespace:
 
         assert settings.app_name == DEFAULT_APP_NAME
 
+# Whitespace-only APP_NAME is trimmed to the default.
     def test_whitespace_app_name(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -116,6 +125,7 @@ class TestEmptyAndWhitespace:
 
         assert settings.app_name == DEFAULT_APP_NAME
 
+# Whitespace-only APP_VERSION is trimmed to the default.
     def test_whitespace_app_version(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -130,6 +140,7 @@ class TestEmptyAndWhitespace:
 
         assert settings.app_version == DEFAULT_APP_VERSION
 
+# Empty CORS_ORIGINS falls back to defaults.
     def test_empty_cors_origins(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -144,6 +155,7 @@ class TestEmptyAndWhitespace:
 
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
 
+# Whitespace-only CORS_ORIGINS falls back to defaults.
     def test_whitespace_cors_origins(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -159,9 +171,11 @@ class TestEmptyAndWhitespace:
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
 
 
+# Invalid env values fall back to safe defaults with a warning.
 class TestInvalidValues:
     """Invalid values fall back to safe defaults with a warning."""
 
+# Invalid LOG_LEVEL falls back to INFO.
     def test_invalid_log_level(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -176,6 +190,7 @@ class TestInvalidValues:
 
         assert settings.log_level == "INFO"
 
+# LOG_LEVEL is accepted case-insensitively.
     def test_log_level_case_insensitive(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -190,6 +205,7 @@ class TestInvalidValues:
 
         assert settings.log_level == "DEBUG"
 
+# CORS_ORIGINS='*' falls back to defaults.
     def test_cors_wildcard_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -204,6 +220,7 @@ class TestInvalidValues:
 
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
 
+# Wildcard among origins triggers fallback to defaults.
     def test_cors_wildcard_among_origins_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -218,6 +235,7 @@ class TestInvalidValues:
 
         assert settings.cors_origins == DEFAULT_CORS_ORIGINS
 
+# Non-integer PORT falls back to 8000.
     def test_invalid_port_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -233,9 +251,11 @@ class TestInvalidValues:
         assert settings.port == 8000
 
 
+# Env overrides are honored by build_settings().
 class TestCustomValues:
     """Explicitly set env vars override defaults."""
 
+# Custom APP_NAME is reflected in settings.
     def test_custom_app_name(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -250,6 +270,7 @@ class TestCustomValues:
 
         assert settings.app_name == "Custom Service"
 
+# Custom CORS_ORIGINS replaces the defaults.
     def test_custom_cors_origins(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -269,6 +290,7 @@ class TestCustomValues:
             "https://staging.example.com",
         )
 
+# Settings dataclass is frozen (immutable).
     def test_settings_is_frozen(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -285,9 +307,11 @@ class TestCustomValues:
             settings.app_name = "hacked"  # type: ignore[misc]
 
 
+# Ports outside 1..65535 fall back to DEFAULT_PORT.
 class TestPortRange:
     """PORT values are validated; out-of-range values fall back to 8000."""
 
+# PORT=0 is out of range and falls back.
     def test_port_zero_falls_back_with_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog
     ) -> None:
@@ -304,6 +328,7 @@ class TestPortRange:
         assert settings.port == 8000
         assert "Invalid PORT '0'; falling back to 8000" in caplog.text
 
+# Negative PORT falls back to 8000.
     def test_port_negative_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -318,6 +343,7 @@ class TestPortRange:
 
         assert settings.port == 8000
 
+# PORT above 65535 falls back to 8000.
     def test_port_above_max_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -332,6 +358,7 @@ class TestPortRange:
 
         assert settings.port == 8000
 
+# PORT=70000 falls back to 8000.
     def test_port_70000_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -346,6 +373,7 @@ class TestPortRange:
 
         assert settings.port == 8000
 
+# Non-numeric PORT falls back to 8000.
     def test_port_abc_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -360,6 +388,7 @@ class TestPortRange:
 
         assert settings.port == 8000
 
+# PORT=1 is accepted unchanged.
     def test_port_min_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -374,6 +403,7 @@ class TestPortRange:
 
         assert settings.port == 1
 
+# PORT=65535 is accepted unchanged.
     def test_port_max_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -388,6 +418,7 @@ class TestPortRange:
 
         assert settings.port == 65535
 
+# PORT=8080 is accepted unchanged.
     def test_port_custom_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
