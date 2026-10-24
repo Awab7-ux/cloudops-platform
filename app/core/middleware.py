@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _VALID_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
+# Returns raw X-Request-ID if safe, else a fresh UUID4.
 def _sanitize_request_id(raw: str | None) -> str:
     """Return *raw* if it is a safe request ID, otherwise a new UUID4.
 
@@ -44,6 +45,7 @@ def _sanitize_request_id(raw: str | None) -> str:
     return str(uuid.uuid4())
 
 
+# Pure ASGI middleware: request-ID, access logging, and the 500 error boundary.
 class RequestIdMiddleware:
     """Pure ASGI middleware for request-ID propagation, access logging,
     and an error boundary for unhandled exceptions.
@@ -69,6 +71,7 @@ class RequestIdMiddleware:
     ``X-Request-ID`` header from this middleware.
     """
 
+# Stores the inner ASGI app.
     def __init__(self, app: ASGIApp) -> None:
         """Initialise with the next ASGI application in the stack.
 
@@ -77,6 +80,7 @@ class RequestIdMiddleware:
         """
         self.app = app
 
+# Routes non-HTTP scopes through; for HTTP runs the ID/error-boundary flow.
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
@@ -118,6 +122,7 @@ class RequestIdMiddleware:
         # response, so the error boundary must not try.
         response_started = False
 
+# Intercepts http.response.start to inject X-Request-ID and record status.
         async def send_with_request_id(message: Message) -> None:
             """Intercept the response-start message to inject headers.
 
