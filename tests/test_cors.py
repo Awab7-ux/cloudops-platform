@@ -12,15 +12,18 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+# Removes app env vars so each test starts clean.
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all app-specific env vars so each test starts clean."""
     for var in ("APP_NAME", "APP_VERSION", "PORT", "CORS_ORIGINS", "LOG_LEVEL"):
         monkeypatch.delenv(var, raising=False)
 
 
+# Allowed origins receive CORS allow-origin headers.
 class TestCorsAllowed:
     """Requests from allowed origins get CORS response headers."""
 
+# http://localhost:3000 is allowed by default.
     def test_localhost_3000_allowed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -36,6 +39,7 @@ class TestCorsAllowed:
             == "http://localhost:3000"
         )
 
+# http://127.0.0.1:3000 is allowed by default.
     def test_127_0_0_1_3000_allowed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -54,9 +58,11 @@ class TestCorsAllowed:
         )
 
 
+# Unknown origins get no CORS headers.
 class TestCorsBlocked:
     """Requests from unknown origins do not receive CORS headers."""
 
+# Non-allow-listed origin gets no access-control-allow-origin.
     def test_unknown_origin_no_cors_header(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -74,6 +80,7 @@ class TestCorsBlocked:
         assert "access-control-allow-origin" not in response.headers
 
 
+# CORS_ORIGINS overrides the compiled-in defaults.
 class TestCorsEnvOverride:
     """CORS_ORIGINS env var overrides the compiled-in defaults."""
 
@@ -94,6 +101,7 @@ class TestCorsEnvOverride:
             == "https://app.example.com"
         )
 
+# Default origin is blocked once CORS_ORIGINS is overridden.
     def test_default_origin_blocked_after_override(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -108,6 +116,7 @@ class TestCorsEnvOverride:
 
         assert "access-control-allow-origin" not in response.headers
 
+# Wildcard CORS_ORIGINS falls back to safe defaults.
     def test_wildcard_falls_back_to_defaults(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
