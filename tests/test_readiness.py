@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-
-from app.main import create_app
 
 
 # GET /ready reports ready when the database query succeeds.
@@ -48,10 +47,9 @@ def test_ready_returns_safe_unavailable_response(
 
 
 # Existing health behavior remains independent of database readiness.
-def test_health_contract_is_unchanged() -> None:
+def test_health_contract_is_unchanged(app: FastAPI) -> None:
     """GET /health still returns the original healthy response."""
-    application = create_app()
-    with TestClient(application) as client:
+    with TestClient(app) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
