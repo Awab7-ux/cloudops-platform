@@ -36,6 +36,7 @@ __all__ = ["DEFAULT_APP_NAME", "DEFAULT_APP_VERSION", "create_app", "app"]
 logger = logging.getLogger(__name__)
 
 
+# Wires config, logging, middleware, CORS, handlers, and routers into one FastAPI app.
 def create_app() -> FastAPI:
     """Create and fully configure the FastAPI application.
 

@@ -33,6 +33,7 @@ MIN_PORT: int = 1
 MAX_PORT: int = 65535
 
 
+# Returns a trimmed env value, falling back to default when blank.
 def _read_env(name: str, default: str) -> str:
     """Read a non-empty, whitespace-trimmed value from the environment.
 
@@ -47,6 +48,7 @@ def _read_env(name: str, default: str) -> str:
     return value.strip() if value and value.strip() else default
 
 
+# Splits CORS_ORIGINS and rejects wildcard '*' (falls back to safe defaults).
 def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     """Parse a comma-separated CORS-origins string into a tuple.
 
@@ -72,6 +74,7 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     return origins if origins else DEFAULT_CORS_ORIGINS
 
 
+# Upper-cases and validates LOG_LEVEL; falls back to INFO when invalid.
 def _parse_log_level(raw: str) -> str:
     """Validate and normalise a log-level string.
 
@@ -135,6 +138,7 @@ def _parse_port(raw: str) -> int:
     return port
 
 
+# Frozen dataclass holding immutable runtime settings.
 @dataclass(frozen=True)
 class Settings:
     """Immutable application settings built from environment variables.
@@ -154,6 +158,7 @@ class Settings:
     log_level: str
 
 
+# Reads env once per create_app() call so monkeypatch tests stay isolated.
 def build_settings() -> Settings:
     """Build a Settings instance from current environment variables.
 
@@ -178,6 +183,7 @@ def build_settings() -> Settings:
     )
 
 
+# FastAPI dependency returning Settings from app.state (no module-level global).
 def get_settings(request: Request) -> Settings:
     """FastAPI dependency that retrieves Settings from application state.
 

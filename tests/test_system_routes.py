@@ -12,15 +12,18 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+# Removes app env vars so each test starts clean.
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all app-specific env vars so each test starts clean."""
     for var in ("APP_NAME", "APP_VERSION", "PORT", "CORS_ORIGINS", "LOG_LEVEL"):
         monkeypatch.delenv(var, raising=False)
 
 
+# GET /health is independent of APP_NAME / APP_VERSION.
 class TestHealthWithCustomEnv:
     """GET /health is independent of APP_NAME / APP_VERSION."""
 
+# Health response is always {"status": "ok"} regardless of env.
     def test_health_ignores_custom_name(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -36,9 +39,11 @@ class TestHealthWithCustomEnv:
         assert response.json() == {"status": "ok"}
 
 
+# GET /version reflects the current APP_NAME and APP_VERSION.
 class TestVersionWithCustomEnv:
     """GET /version reflects the current APP_NAME and APP_VERSION."""
 
+# Custom env vars are reflected in the version response.
     def test_version_with_custom_env(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -56,6 +61,7 @@ class TestVersionWithCustomEnv:
             "version": "2.5.0-rc1",
         }
 
+# Whitespace around APP_NAME is stripped before use.
     def test_version_name_trimmed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -69,9 +75,11 @@ class TestVersionWithCustomEnv:
         assert response.json()["name"] == "Padded Name"
 
 
+# GET / reflects the current APP_NAME.
 class TestRootWithCustomEnv:
     """GET / reflects the current APP_NAME."""
 
+# The root message includes the custom APP_NAME.
     def test_root_message_uses_custom_name(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

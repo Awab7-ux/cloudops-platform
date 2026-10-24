@@ -25,6 +25,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s [%(request_id)s] %(message)s"
 _HANDLER_ATTR = "_cloudops_platform"
 
 
+# logging.Filter that injects the current request ID from request_id_ctx.
 class _RequestIdFilter(logging.Filter):
     """Injects the current request ID into every log record.
 
@@ -33,6 +34,7 @@ class _RequestIdFilter(logging.Filter):
     value defaults to ``"-"``.
     """
 
+# Sets record.request_id from the context var; never suppresses a record.
     def filter(self, record: logging.LogRecord) -> bool:
         """Add ``request_id`` to the log record.
 
@@ -46,6 +48,7 @@ class _RequestIdFilter(logging.Filter):
         return True
 
 
+# Configures the root logger once (deduped via handler marker) at the given level.
 def setup_logging(log_level: str) -> None:
     """Configure the root logger with a consistent format and level.
 
