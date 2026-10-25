@@ -64,3 +64,17 @@ def test_deployment_create_forbids_extra_fields(
     """Reject lifecycle status and unknown fields during creation."""
     with pytest.raises(ValidationError):
         DeploymentCreate.model_validate(payload)
+
+
+# Verifies status updates reject undeclared lifecycle values.
+def test_deployment_status_update_rejects_invalid_status() -> None:
+    """Reject status values outside the deployment lifecycle."""
+    with pytest.raises(ValidationError):
+        DeploymentStatusUpdate.model_validate({"status": "paused"})
+
+
+# Verifies status updates reject fields outside the request contract.
+def test_deployment_status_update_forbids_extra_fields() -> None:
+    """Reject unknown fields from status update payloads."""
+    with pytest.raises(ValidationError):
+        DeploymentStatusUpdate.model_validate({"status": "running", "extra": 1})
