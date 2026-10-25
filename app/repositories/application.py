@@ -12,36 +12,9 @@ from sqlalchemy.orm import Session
 from app.core.logging import safe_log_value
 from app.domain.exceptions import ConflictError
 from app.models.application import Application, ApplicationStatus, Environment
+from app.repositories.pagination import validate_pagination
 
 logger = logging.getLogger(__name__)
-
-MIN_APPLICATION_LIMIT: int = 1
-MAX_APPLICATION_LIMIT: int = 200
-
-
-# Validates repository-level pagination inputs before SQL execution.
-def _validate_pagination(limit: int, offset: int) -> None:
-    """Validate application list pagination bounds.
-
-    Args:
-        limit: Number of rows requested.
-        offset: Number of rows to skip.
-
-    Raises:
-        ValueError: If either pagination value is outside the public bounds.
-    """
-    logger.debug(
-        "_validate_pagination entry: limit=%d offset=%d",
-        limit,
-        offset,
-    )
-    if limit < MIN_APPLICATION_LIMIT or limit > MAX_APPLICATION_LIMIT:
-        logger.debug("_validate_pagination exit: valid=%s", False)
-        raise ValueError("limit is outside the supported range")
-    if offset < 0:
-        logger.debug("_validate_pagination exit: valid=%s", False)
-        raise ValueError("offset cannot be negative")
-    logger.debug("_validate_pagination exit: valid=%s", True)
 
 
 # Persists and retrieves Application rows through one injected session.
@@ -199,7 +172,7 @@ class ApplicationRepository:
             safe_log_value(environment.value if environment else None),
             safe_log_value(status.value if status else None),
         )
-        _validate_pagination(limit, offset)
+        validate_pagination(limit, offset)
         conditions: list[ColumnElement[bool]] = []
         if environment is not None:
             conditions.append(Application.environment == environment)
