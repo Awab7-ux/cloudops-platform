@@ -33,6 +33,16 @@ class DatabaseUnavailableError(Exception):
 INTERNAL_ERROR_BODY: dict[str, str] = {"detail": "Internal Server Error"}
 """Safe JSON body returned for all unexpected 500 responses."""
 
+# WHY: only fixed domain resource names may become public response details.
+_SAFE_NOT_FOUND_RESOURCES: frozenset[str] = frozenset(
+    {"application", "deployment"}
+)
+_DEFAULT_NOT_FOUND_RESOURCE = "application"
+_SAFE_CONFLICT_DETAILS: frozenset[str] = frozenset(
+    {"application name already exists", "invalid status transition"}
+)
+_DEFAULT_CONFLICT_DETAIL = "application name already exists"
+
 
 # Builds the shared opaque 500 JSON body used by middleware and handler.
 def build_error_response() -> JSONResponse:
@@ -82,12 +92,12 @@ async def _database_unavailable_exception_handler(
     return response
 
 
-# Builds the safe 404 response for missing application resources.
+# Builds the safe 404 response for missing domain resources.
 async def _not_found_exception_handler(
     request: Request,
     exc: NotFoundError,
 ) -> JSONResponse:
-    """Return the public response for a missing application.
+    """Return the public response for a missing domain resource.
 
     Args:
         request: Request that triggered the missing-resource error.
@@ -100,9 +110,14 @@ async def _not_found_exception_handler(
         "_not_found_exception_handler entry: path=%s",
         safe_log_value(request.url.path),
     )
+    resource = (
+        exc.resource
+        if exc.resource in _SAFE_NOT_FOUND_RESOURCES
+        else _DEFAULT_NOT_FOUND_RESOURCE
+    )
     response = JSONResponse(
         status_code=404,
-        content={"detail": "application not found"},
+        content={"detail": f"{resource} not found"},
     )
     logger.debug(
         "_not_found_exception_handler exit: status_code=%d",
@@ -111,12 +126,12 @@ async def _not_found_exception_handler(
     return response
 
 
-# Builds the safe 409 response for duplicate application names.
+# Builds the safe 409 response for domain conflicts.
 async def _conflict_exception_handler(
     request: Request,
     exc: ConflictError,
 ) -> JSONResponse:
-    """Return the public response for an application name conflict.
+    """Return the public response for a domain conflict.
 
     Args:
         request: Request that triggered the conflict error.
@@ -129,10 +144,12 @@ async def _conflict_exception_handler(
         "_conflict_exception_handler entry: path=%s",
         safe_log_value(request.url.path),
     )
-    response = JSONResponse(
-        status_code=409,
-        content={"detail": "application name already exists"},
+    detail = (
+        exc.detail
+        if exc.detail in _SAFE_CONFLICT_DETAILS
+        else _DEFAULT_CONFLICT_DETAIL
     )
+    response = JSONResponse(status_code=409, content={"detail": detail})
     logger.debug(
         "_conflict_exception_handler exit: status_code=%d",
         response.status_code,
