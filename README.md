@@ -190,3 +190,52 @@ Tested on Windows 11 with Docker Desktop:
 - `APP_VERSION` is read from the environment; without it, `/version` returns the default `0.1.0`.
 - The container runs as a non-root user (`uid=10001`, `appuser`).
 - The frontend uses clearly labeled demo data everywhere except the live probes of the backend API (`GET /`, `GET /health`, `GET /version`).
+
+## Run with Docker
+
+Prerequisites:
+
+- Docker Desktop is installed and running.
+- Ports `3000` and `8000` are available on localhost.
+
+Commands:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+docker compose logs -f backend
+docker compose down
+```
+
+To delete the SQLite database volume entirely:
+
+```powershell
+docker compose down -v
+```
+
+URLs:
+
+- Frontend: http://localhost:3000
+- API: http://localhost:8000
+- API docs: http://localhost:8000/docs
+
+Data location:
+
+- SQLite database is stored in the named Docker volume `cloudops-data`.
+- The backend uses `DATABASE_URL=sqlite:////data/cloudops.db` inside the container.
+
+Change the API URL for a frontend rebuild:
+
+```powershell
+$env:VITE_API_BASE_URL="http://localhost:8000"; docker compose build frontend
+```
+
+Limitations:
+
+- Pages remain labeled as demo data except for the live API probes.
+- The frontend is not wired to `/applications` and `/deployments` yet.
+- SQLite is single-writer and has no migrations; tables are created at startup.
+- Ports are bound to localhost only and there is no TLS.
+- The API URL is fixed at build time.
+- No Content-Security-Policy has been added yet.
+- Docker build is not run in CI yet.
