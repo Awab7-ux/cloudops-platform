@@ -253,3 +253,56 @@ def test_deployment_service_rejects_forbidden_transition(
         assert error.value.detail == "invalid status transition"
     finally:
         session.close()
+
+
+# Verifies listing rejects an unknown parent application.
+def test_deployment_service_list_unknown_application(
+    in_memory_engine: Engine,
+) -> None:
+    """Raise an application not-found error when listing an absent parent."""
+    session = Session(in_memory_engine)
+    try:
+        service = _build_service(
+            session,
+            FakeClock(datetime(2024, 5, 1, tzinfo=timezone.utc)),
+        )
+
+        with pytest.raises(NotFoundError) as error:
+            service.list_for_application(
+                "00000000-0000-4000-8000-000000000000",
+                limit=50,
+                offset=0,
+            )
+
+        assert error.value.resource == "application"
+    finally:
+        session.close()
+
+
+# Verifies a same-state transition fails without changing persisted status.
+def test_deployment_service_rejects_pending_to_pending(
+    in_memory_engine: Engine,
+) -> None:
+    """Reject a pending-to-pending transition and retain the pending status."""
+    session = Session(in_memory_engine)
+    try:
+        application = _create_application(session, "service-same-state")
+        service = _build_service(
+            session,
+            FakeClock(datetime(2024, 5, 1, tzinfo=timezone.utc)),
+        )
+        deployment = service.create_for_application(
+            application.id,
+            DeploymentCreate(version="v1"),
+        )
+
+        with pytest.raises(ConflictError) as error:
+            service.update_status(
+                deployment.id,
+                DeploymentStatusUpdate(status=DeploymentStatus.PENDING),
+            )
+
+        assert error.value.detail == "invalid status transition"
+        assert service.get(deployment.id).status is DeploymentStatus.PENDING
+    finally:
+        session.close()
