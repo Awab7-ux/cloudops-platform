@@ -408,3 +408,160 @@ def test_deployments_api_application_delete_cascades(
         "deployment not found",
         "deployment-cascade",
     )
+
+
+# Verifies PATCH status payloads reject invalid and extra fields.
+def test_deployments_api_patch_rejects_invalid_status_payloads(
+    ready_client: TestClient,
+) -> None:
+    """Return 422 for unsupported statuses and unknown status fields."""
+    application = _create_application(
+        ready_client,
+        "Deployment API Invalid Status",
+    ).json()
+    deployment = _create_deployment(
+        ready_client,
+        application["id"],
+        "v1",
+    ).json()
+    invalid_status = ready_client.patch(
+        f"/deployments/{deployment['id']}/status",
+        json={"status": "paused"},
+    )
+    extra_field = ready_client.patch(
+        f"/deployments/{deployment['id']}/status",
+        json={"status": "running", "extra": 1},
+    )
+
+    assert invalid_status.status_code == 422
+    assert extra_field.status_code == 422
+
+
+# Verifies a well-formed missing deployment ID uses the safe 404 contract.
+def test_deployments_api_patch_missing_deployment_has_safe_error(
+    ready_client: TestClient,
+) -> None:
+    """PATCH an unknown deployment returns its fixed error and headers."""
+    missing_id = "00000000-0000-4000-8000-000000000000"
+    response = ready_client.patch(
+        f"/deployments/{missing_id}/status",
+        json={"status": "running"},
+        headers={
+            "Origin": "http://localhost:3000",
+            "X-Request-ID": "deployment-patch-missing",
+        },
+    )
+
+    _assert_error_contract(
+        response,
+        404,
+        "deployment not found",
+        "deployment-patch-missing",
+    )
+
+
+# Verifies listing an unknown application's deployments uses the safe 404 contract.
+def test_deployments_api_list_missing_application_has_safe_error(
+    ready_client: TestClient,
+) -> None:
+    """GET deployments for an unknown application returns fixed error headers."""
+    missing_id = "00000000-0000-4000-8000-000000000000"
+    response = ready_client.get(
+        f"/applications/{missing_id}/deployments",
+        headers={
+            "Origin": "http://localhost:3000",
+            "X-Request-ID": "deployment-list-missing-application",
+        },
+    )
+
+    _assert_error_contract(
+        response,
+        404,
+        "application not found",
+        "deployment-list-missing-application",
+    )
+
+
+# Verifies PATCH rejects a running-to-running transition with its safe contract.
+def test_deployments_api_same_state_transition_has_safe_error(
+    ready_client: TestClient,
+) -> None:
+    """PATCH running to running returns 409 with required response headers."""
+    application = _create_application(
+        ready_client,
+        "Deployment API Same State",
+    ).json()
+    deployment = _create_deployment(
+        ready_client,
+        application["id"],
+        "v1",
+    ).json()
+    started = ready_client.patch(
+        f"/deployments/{deployment['id']}/status",
+        json={"status": "running"},
+    )
+    assert started.status_code == 200
+
+    response = ready_client.patch(
+        f"/deployments/{deployment['id']}/status",
+        json={"status": "running"},
+        headers={
+            "Origin": "http://localhost:3000",
+            "X-Request-ID": "deployment-same-state",
+        },
+    )
+
+    _assert_error_contract(
+        response,
+        409,
+        "invalid status transition",
+        "deployment-same-state",
+    )
+
+
+# Verifies failed lifecycle timestamps are exact and preserved on rollback.
+def test_deployments_api_failed_lifecycle_uses_clock(
+    ready_client: TestClient,
+) -> None:
+    """Preserve the first finished timestamp through rollback after failure."""
+    created_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    running_at = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    failed_at = datetime(2026, 9, 3, tzinfo=timezone.utc)
+    rollback_at = datetime(2026, 9, 4, tzinfo=timezone.utc)
+    clock = MutableClock(created_at)
+    with _clock_override(ready_client, clock):
+        application = _create_application(
+            ready_client,
+            "Deployment API Failed Lifecycle",
+        ).json()
+        created = _create_deployment(
+            ready_client,
+            application["id"],
+            "v1",
+        ).json()
+        clock.value = running_at
+        running = ready_client.patch(
+            f"/deployments/{created['id']}/status",
+            json={"status": "running"},
+        ).json()
+        clock.value = failed_at
+        failed = ready_client.patch(
+            f"/deployments/{created['id']}/status",
+            json={"status": "failed"},
+        ).json()
+        clock.value = rollback_at
+        rolled_back = ready_client.patch(
+            f"/deployments/{created['id']}/status",
+            json={"status": "rolled_back"},
+        ).json()
+
+    assert created["status"] == "pending"
+    assert created["created_at"] == created_at.isoformat().replace("+00:00", "Z")
+    assert running["status"] == "running"
+    assert running["started_at"] == running_at.isoformat().replace("+00:00", "Z")
+    assert failed["status"] == "failed"
+    assert failed["started_at"] == running["started_at"]
+    assert failed["finished_at"] == failed_at.isoformat().replace("+00:00", "Z")
+    assert rolled_back["status"] == "rolled_back"
+    assert rolled_back["started_at"] == running["started_at"]
+    assert rolled_back["finished_at"] == failed["finished_at"]
