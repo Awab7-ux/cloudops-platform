@@ -85,7 +85,7 @@ class ApplicationRepository:
         except IntegrityError as exc:
             # WHY: rollback clears the failed transaction before the caller can reuse it.
             self._session.rollback()
-            logger.error(
+            logger.warning(
                 "Application persistence failed: exception_type=%s",
                 safe_log_value(type(exc).__name__),
             )
