@@ -14,7 +14,11 @@ from sqlalchemy.pool import StaticPool
 
 import app.models as application_models
 from app.db.base import Base
-from app.db.session import create_session_factory, get_session
+from app.db.session import (
+    create_session_factory,
+    enable_sqlite_foreign_keys,
+    get_session,
+)
 from app.main import create_app
 
 
@@ -27,6 +31,7 @@ def in_memory_engine() -> Iterator[Engine]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    enable_sqlite_foreign_keys(engine)
     # Import the shared model metadata before creating test tables.
     _ = application_models
     Base.metadata.create_all(engine)
