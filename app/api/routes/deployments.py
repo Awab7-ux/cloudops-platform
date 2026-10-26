@@ -6,12 +6,8 @@ import logging
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.deployment import DeploymentStatus
-from app.repositories.pagination import (
-    DEFAULT_PAGE_SIZE,
-    MAX_PAGE_SIZE,
-    MIN_PAGE_SIZE,
-)
 from app.schemas.deployment import (
     DeploymentCreate,
     DeploymentList,
