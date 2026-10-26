@@ -42,6 +42,8 @@ are isolated in `requirements-dev.txt`.
 
 If `CORS_ORIGINS` contains `*`, it is rejected, a warning is logged, and the
 default origins are used. An invalid `LOG_LEVEL` falls back to `INFO`.
+Cross-origin requests allow `GET`, `POST`, `PATCH`, and `DELETE` with the
+`Content-Type` request header; credentials are disabled.
 
 ### Run locally
 
