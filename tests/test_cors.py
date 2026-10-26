@@ -13,10 +13,97 @@ from app.main import create_app
 
 
 # Removes app env vars so each test starts clean.
+# Removes app env vars so CORS tests use deterministic defaults.
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all app-specific env vars so each test starts clean."""
     for var in ("APP_NAME", "APP_VERSION", "PORT", "CORS_ORIGINS", "LOG_LEVEL"):
         monkeypatch.delenv(var, raising=False)
+
+
+# Verifies browser preflight behavior for every method exposed by routes.
+@pytest.mark.parametrize("method", ["GET", "POST", "PATCH", "DELETE"])
+def test_allowed_methods_accept_content_type_preflight(
+    monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    """Allowed route methods accept JSON preflight requests."""
+    _clean_env(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.options(
+        "/applications",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == (
+        "http://localhost:3000"
+    )
+    assert method in response.headers["access-control-allow-methods"]
+    assert "content-type" in response.headers[
+        "access-control-allow-headers"
+    ].lower()
+
+
+# Blocks CORS preflight requests from origins outside the configured list.
+def test_preflight_from_disallowed_origin_has_no_allow_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A disallowed origin receives no allow-origin header."""
+    _clean_env(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.options(
+        "/applications",
+        headers={
+            "Origin": "http://evil.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert "access-control-allow-origin" not in response.headers
+
+
+# Ensures methods not used by routes are excluded from preflight approval.
+def test_preflight_rejects_unused_put_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PUT is not allowed because no API route uses it."""
+    _clean_env(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.options(
+        "/applications",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert "PUT" not in response.headers.get(
+        "access-control-allow-methods", ""
+    )
+
+
+# Preserves CORS access to ordinary GET responses without credentials.
+def test_simple_get_allows_origin_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A simple GET allows the frontend origin without credentials."""
+    _clean_env(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.get("/", headers={"Origin": "http://localhost:3000"})
+
+    assert response.headers["access-control-allow-origin"] == (
+        "http://localhost:3000"
+    )
+    assert "access-control-allow-credentials" not in response.headers
 
 
 # Allowed origins receive CORS allow-origin headers.
@@ -140,4 +227,3 @@ class TestCorsEnvOverride:
             "/", headers={"Origin": "http://attacker.example.com"}
         )
         assert "access-control-allow-origin" not in response2.headers
-
