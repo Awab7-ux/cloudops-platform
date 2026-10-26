@@ -106,6 +106,22 @@ def test_simple_get_allows_origin_without_credentials(
     assert "access-control-allow-credentials" not in response.headers
 
 
+# Keeps the explicit request-header policy restricted to Content-Type.
+def test_only_content_type_is_configured_as_an_allowed_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CORS middleware explicitly allows only Content-Type."""
+    _clean_env(monkeypatch)
+    application = create_app()
+    cors_middleware = next(
+        middleware
+        for middleware in application.user_middleware
+        if middleware.cls.__name__ == "CORSMiddleware"
+    )
+
+    assert cors_middleware.kwargs["allow_headers"] == ["Content-Type"]
+
+
 # Allowed origins receive CORS allow-origin headers.
 class TestCorsAllowed:
     """Requests from allowed origins get CORS response headers."""
