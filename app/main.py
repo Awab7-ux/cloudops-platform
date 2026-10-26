@@ -23,6 +23,7 @@ from sqlalchemy import Engine
 
 from app.api.routes.applications import router as applications_router
 from app.api.routes.deployments import router as deployments_router
+from app.api.routes.logs import router as logs_router
 from app.api.routes.system import router as system_router
 from app.core.config import (
     DEFAULT_APP_NAME,
@@ -118,6 +119,7 @@ def create_app() -> FastAPI:
     application.include_router(system_router)
     application.include_router(applications_router)
     application.include_router(deployments_router)
+    application.include_router(logs_router)
 
     # --- Middleware (added bottom-up; last add_middleware = outermost) ---
     # WHY this order: Starlette makes the *last* ``add_middleware``

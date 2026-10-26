@@ -10,9 +10,9 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.orm import Session
 
 from app.core.logging import safe_log_value
+from app.core.pagination import validate_pagination
 from app.domain.exceptions import ConflictError
 from app.models.application import Application, ApplicationStatus, Environment
-from app.repositories.pagination import validate_pagination
 
 logger = logging.getLogger(__name__)
 

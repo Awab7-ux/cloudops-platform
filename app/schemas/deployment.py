@@ -7,12 +7,8 @@ import logging
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.deployment import DeploymentStatus
-from app.repositories.pagination import (
-    DEFAULT_PAGE_SIZE,
-    MAX_PAGE_SIZE,
-    MIN_PAGE_SIZE,
-)
 
 logger = logging.getLogger(__name__)
 

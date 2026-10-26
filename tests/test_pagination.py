@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.repositories.pagination import validate_pagination
+from app.core.pagination import validate_pagination
 
 
 # Verifies invalid page sizes use the established validation message.

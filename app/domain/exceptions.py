@@ -54,3 +54,27 @@ class ConflictError(Exception):
         super().__init__(detail)
         self.detail = detail
         logger.debug("ConflictError.__init__ exit")
+
+
+# Represents an invalid lower/upper timestamp range for log retrieval.
+class InvalidLogTimeRangeError(Exception):
+    """Indicate that a log query's lower timestamp follows its upper bound.
+
+    Args:
+        detail: Stable validation detail code used by the HTTP mapper.
+    """
+
+    # Stores a safe validation detail for the central HTTP error mapper.
+    def __init__(self, detail: str = "since must not be after until") -> None:
+        """Initialize an invalid log time-range error.
+
+        Args:
+            detail: Stable validation detail code.
+        """
+        logger.debug(
+            "InvalidLogTimeRangeError.__init__ entry: detail_length=%d",
+            len(detail),
+        )
+        super().__init__(detail)
+        self.detail = detail
+        logger.debug("InvalidLogTimeRangeError.__init__ exit")
