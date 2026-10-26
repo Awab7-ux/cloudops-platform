@@ -7,8 +7,8 @@ Kubernetes, or Terraform.
 
 ## Backend architecture
 
-The service is intentionally stateless and has no database or external service
-dependencies. Its request flow is organized into these layers:
+The service uses SQLite for application, deployment, and log data and has no
+external service dependencies. Its request flow is organized into these layers:
 
 ```text
 Middleware
@@ -74,7 +74,7 @@ python -m pytest -q
 
 ### Known limitations
 
-- No database.
+- SQLite is single-writer and there are no schema migrations.
 - No authentication.
 - The frontend still uses clearly labeled demo data except for `GET /health`
   and `GET /version`.
@@ -109,7 +109,7 @@ No secrets are required for this phase.
 
 ## API
 
-All successful responses are JSON with HTTP `200 OK`.
+Successful responses are JSON; the status code depends on the endpoint.
 
 | Method | Endpoint | Example response |
 | --- | --- | --- |
@@ -118,6 +118,29 @@ All successful responses are JSON with HTTP `200 OK`.
 | `GET` | `/version` | `{"name":"CloudOps Platform","version":"0.1.0"}` |
 
 An unrecognized path returns FastAPI's JSON `404 Not Found` response.
+
+### Logs API
+
+Logs are append-only. Create a log with `POST /applications/{application_id}/logs`
+(`201 Created`); the server sets `created_at` from its clock, and clients cannot
+set it. A log may include an optional `deployment_id` belonging to that
+application and an optional `source` label.
+
+Retrieve logs with these endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/applications/{application_id}/logs` | List logs for one application |
+| `GET` | `/deployments/{deployment_id}/logs` | List logs for one deployment |
+| `GET` | `/logs` | List logs across applications |
+
+List endpoints accept `level`, `deployment_id`, `since`, and `until`; the global
+list also accepts `application_id`. `since` and `until` are ISO 8601 timestamps
+with a timezone and both bounds are inclusive. Results are ordered by
+`created_at` descending and then `id` ascending. Pagination uses `limit` (default
+`50`, maximum `200`) and `offset` (default `0`), and returns `items`, `total`,
+`limit`, and `offset`. Logs cannot be updated or individually deleted; deleting
+their application or deployment removes its associated logs.
 
 Examples in PowerShell:
 
