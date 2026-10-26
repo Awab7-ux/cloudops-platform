@@ -41,6 +41,7 @@ from app.db.session import create_db_engine, create_session_factory
 __all__ = ["DEFAULT_APP_NAME", "DEFAULT_APP_VERSION", "create_app", "app"]
 
 logger = logging.getLogger(__name__)
+CORS_MAX_AGE_SECONDS = 600
 
 
 # Creates temporary metadata tables and disposes the application engine.
@@ -76,8 +77,8 @@ def create_app() -> FastAPI:
 
     **Middleware ordering** (outermost → innermost):
 
-    1. ``CORSMiddleware`` — enforces the origin allow-list with a
-       GET-only, no-credentials policy.
+    1. ``CORSMiddleware`` — enforces the origin allow-list with the API
+       route methods and no credentials.
     2. ``RequestIdMiddleware`` — assigns/validates ``X-Request-ID``,
        logs method, path, status code, and duration, and acts as the
        error boundary for unhandled exceptions.
@@ -131,18 +132,16 @@ def create_app() -> FastAPI:
     # headers.
     application.add_middleware(RequestIdMiddleware)
 
-    # CORS: outermost layer — allow only the configured origins, only
-    # GET, never send credentials.  Wildcard "*" is already rejected
+    # CORS: outermost layer — allow only configured origins and API
+    # methods, never send credentials.  Wildcard "*" is already rejected
     # by build_settings().
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_credentials=False,
-        # Empty list: no extra request headers are permitted in
-        # preflight.  GET with standard headers is a "simple request"
-        # and does not trigger preflight anyway.
-        allow_headers=[],
+        allow_headers=["Content-Type"],
+        max_age=CORS_MAX_AGE_SECONDS,
     )
 
     logger.info(
