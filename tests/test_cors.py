@@ -122,6 +122,26 @@ def test_only_content_type_is_configured_as_an_allowed_header(
     assert cors_middleware.kwargs["allow_headers"] == ["Content-Type"]
 
 
+# Keeps browser preflight caching at the intended duration.
+def test_preflight_max_age_is_600_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CORS preflight response advertises a 600-second max age."""
+    _clean_env(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.options(
+        "/applications",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.headers["access-control-max-age"] == "600"
+
+
 # Allowed origins receive CORS allow-origin headers.
 class TestCorsAllowed:
     """Requests from allowed origins get CORS response headers."""
