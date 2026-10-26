@@ -16,7 +16,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.logging import safe_log_value
-from app.domain.exceptions import ConflictError, NotFoundError
+from app.domain.exceptions import (
+    ConflictError,
+    InvalidLogTimeRangeError,
+    NotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,10 @@ _SAFE_CONFLICT_DETAILS: frozenset[str] = frozenset(
     {"application name already exists", "invalid status transition"}
 )
 _DEFAULT_CONFLICT_DETAIL = "application name already exists"
+_SAFE_VALIDATION_DETAILS: frozenset[str] = frozenset(
+    {"since must not be after until"}
+)
+_DEFAULT_VALIDATION_DETAIL = "since must not be after until"
 
 
 # Builds the shared opaque 500 JSON body used by middleware and handler.
@@ -157,6 +165,37 @@ async def _conflict_exception_handler(
     return response
 
 
+# Builds the safe 422 response for a rejected log time range.
+async def _invalid_log_time_range_exception_handler(
+    request: Request,
+    exc: InvalidLogTimeRangeError,
+) -> JSONResponse:
+    """Return a safe validation response for an inverted log time range.
+
+    Args:
+        request: Request that triggered the invalid range.
+        exc: Domain error describing the rejected range.
+
+    Returns:
+        A 422 response with a fixed safe detail.
+    """
+    logger.debug(
+        "_invalid_log_time_range_exception_handler entry: path=%s",
+        safe_log_value(request.url.path),
+    )
+    detail = (
+        exc.detail
+        if exc.detail in _SAFE_VALIDATION_DETAILS
+        else _DEFAULT_VALIDATION_DETAIL
+    )
+    response = JSONResponse(status_code=422, content={"detail": detail})
+    logger.debug(
+        "_invalid_log_time_range_exception_handler exit: status_code=%d",
+        response.status_code,
+    )
+    return response
+
+
 # ── Last-resort exception handler ────────────────────────────────────
 
 
@@ -214,6 +253,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(NotFoundError, _not_found_exception_handler)
     app.add_exception_handler(ConflictError, _conflict_exception_handler)
+    app.add_exception_handler(
+        InvalidLogTimeRangeError,
+        _invalid_log_time_range_exception_handler,
+    )
     app.add_exception_handler(Exception, _unhandled_exception_handler)
     logger.debug("register_exception_handlers exit")
-
