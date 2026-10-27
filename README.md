@@ -76,8 +76,37 @@ python -m pytest -q
 
 - SQLite is single-writer and there are no schema migrations.
 - No authentication.
-- The frontend still uses clearly labeled demo data except for `GET /health`
-  and `GET /version`.
+- Frontend pages other than Applications still use clearly labeled demo data;
+  the Applications page and the `/health` and `/version` probes use the live API.
+
+## Frontend
+
+The Applications page reads and manages application records through the live
+backend API (`GET`, `POST`, `PATCH`, and `DELETE /applications`). The other
+dashboard pages remain demo views. The API client reads its base URL only from
+`VITE_API_BASE_URL`.
+
+Run the frontend from `frontend/` in PowerShell:
+
+```powershell
+npm ci
+$env:VITE_API_BASE_URL="http://localhost:8000"
+npm run dev
+```
+
+The development server uses port `3000`, which is allowed by the backend's
+default CORS origins. If you change the frontend port or origin, configure the
+backend's `CORS_ORIGINS` to include that exact origin. The Docker frontend image
+uses the `VITE_API_BASE_URL` build argument.
+
+Run frontend checks from `frontend/`:
+
+```powershell
+npm run lint
+npm run test
+npx tsx --test src/utils/telemetry.test.ts
+npm run build
+```
 
 ## Requirements
 
