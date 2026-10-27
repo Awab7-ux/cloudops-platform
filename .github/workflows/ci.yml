@@ -61,3 +61,6 @@ jobs:
 
       - name: Run frontend tests
         run: npx tsx --test src/utils/telemetry.test.ts
+
+      - name: Run component and API tests
+        run: npm test
