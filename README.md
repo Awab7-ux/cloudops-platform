@@ -117,6 +117,18 @@ Successful responses are JSON; the status code depends on the endpoint.
 | `GET` | `/health` | `{"status":"ok"}` |
 | `GET` | `/version` | `{"name":"CloudOps Platform","version":"0.1.0"}` |
 
+### Summary and alerts API
+
+The dashboard summary is computed from live application, deployment, and log aggregates without creating new tables. `GET /summary` returns total counts, zero-filled status and environment buckets, deployment counts created in the trailing 24 hours, and error-log counts in the same window. Window bounds are UTC, inclusive at both the 24-hour lower bound and `generated_at`. The response includes the five newest failed deployments in descending creation order.
+
+The derived alert feed is generated from current application state rather than persistent alert rows. `GET /alerts` returns:
+
+- `deployment_failed` (high): the latest deployment for an application is failed; a newer deployment clears the alert.
+- `deployment_stuck` (medium): a deployment has remained running for at least 60 minutes.
+- `error_log_spike` (medium): an application has at least five error logs in the trailing 60 minutes.
+
+The alert time windows are UTC, inclusive at both the lower bound and `generated_at`. The fixed messages are “Deployment failed.”, “Deployment is stuck.”, and “Error log spike detected.” The merged feed is ordered by severity (high before medium), then `since` descending, then ID ascending. It supports optional `limit` (default `50`, maximum `200`), `offset` (default `0`), `severity`, `type`, and `application_id` filters. Alert and summary logs do not include log message content.
+
 An unrecognized path returns FastAPI's JSON `404 Not Found` response.
 
 ### Logs API
