@@ -47,6 +47,8 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+# Keep the local kind SQLite database and its journal/WAL/SHM files out of Git.
+.local/kind/sqlite/
 
 # Python
 .venv/
