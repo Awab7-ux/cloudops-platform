@@ -1,0 +1,10 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cloudops-platform
+nodes:
+  - role: control-plane
+    extraMounts:
+      # Render the Windows host path with New-KindConfig.ps1 before creating the cluster.
+      - hostPath: '__CLOUDOPS_KIND_DATA_DIR__'
+        containerPath: /var/local/cloudops-platform/sqlite
+        readOnly: false

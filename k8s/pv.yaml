@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cloudops-platform-sqlite
+  labels:
+    app.kubernetes.io/part-of: cloudops-platform
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  # An empty class keeps this static volume out of dynamic provisioning.
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  # Reserve this volume for the project's namespaced claim.
+  claimRef:
+    namespace: cloudops-platform
+    name: backend-data
+  hostPath:
+    # This node path must be mounted from the Windows host by the kind config.
+    path: /var/local/cloudops-platform/sqlite
+    type: Directory
+  # The hostPath exists only on the kind node whose name matches this cluster.
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - cloudops-platform-control-plane

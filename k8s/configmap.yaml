@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: cloudops-platform
+  labels:
+    app.kubernetes.io/part-of: cloudops-platform
+data:
+  # Match the backend's SQLite path and the existing Docker Compose configuration.
+  DATABASE_URL: sqlite:////data/cloudops.db
+  LOG_LEVEL: INFO
+  # Browser requests originate from the locally port-forwarded frontend.
+  CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000

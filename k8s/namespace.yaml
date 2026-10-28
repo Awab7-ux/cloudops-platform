@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  # Keep project resources grouped for namespaced inspection and cleanup.
+  name: cloudops-platform
+  labels:
+    app.kubernetes.io/part-of: cloudops-platform
