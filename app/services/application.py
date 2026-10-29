@@ -66,6 +66,9 @@ class ApplicationService:
         application = Application(
             name=payload.name,
             description=payload.description,
+            port=payload.port,
+            image=payload.image,
+            replicas=payload.replicas,
             environment=payload.environment,
             status=payload.status,
             created_at=creation_time,
@@ -160,6 +163,12 @@ class ApplicationService:
             application.name = payload.name
         if "description" in payload.model_fields_set:
             application.description = payload.description
+        if "port" in payload.model_fields_set:
+            application.port = payload.port
+        if "image" in payload.model_fields_set:
+            application.image = payload.image
+        if "replicas" in payload.model_fields_set:
+            application.replicas = payload.replicas
         if "environment" in payload.model_fields_set and payload.environment is not None:
             application.environment = payload.environment
         if "status" in payload.model_fields_set and payload.status is not None:

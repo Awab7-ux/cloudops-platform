@@ -9,11 +9,17 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.application import ApplicationStatus, Environment
+from app.models.deployment import DeploymentStatus
 
 logger = logging.getLogger(__name__)
 
 MAX_APPLICATION_NAME_LENGTH: int = 100
 MAX_APPLICATION_DESCRIPTION_LENGTH: int = 500
+MAX_APPLICATION_IMAGE_LENGTH: int = 255
+MIN_APPLICATION_PORT: int = 1
+MAX_APPLICATION_PORT: int = 65535
+MIN_APPLICATION_REPLICAS: int = 0
+MAX_APPLICATION_REPLICAS: int = 1000
 MIN_APPLICATION_PAGE_SIZE: int = 1
 MAX_APPLICATION_PAGE_SIZE: int = 200
 
@@ -41,6 +47,29 @@ def _strip_application_name(value: object) -> object:
     return result
 
 
+# Trims an optional image reference before field constraints are applied.
+def _strip_application_image(value: object) -> object:
+    """Trim surrounding whitespace from an image reference candidate.
+
+    Args:
+        value: Raw value supplied for an application image.
+
+    Returns:
+        The trimmed string when ``value`` is a string; otherwise the raw value.
+    """
+    logger.debug(
+        "_strip_application_image entry: value_type=%s",
+        type(value).__name__,
+    )
+    result = value.strip() if isinstance(value, str) else value
+    logger.debug(
+        "_strip_application_image exit: value_type=%s value_len=%d",
+        type(result).__name__,
+        len(result) if isinstance(result, str) else 0,
+    )
+    return result
+
+
 # Defines the validated payload for creating an application.
 class ApplicationCreate(BaseModel):
     """Request body for creating an application.
@@ -48,6 +77,9 @@ class ApplicationCreate(BaseModel):
     Attributes:
         name: Exact, stripped application name.
         description: Optional application description.
+        port: Optional container port.
+        image: Optional container image reference.
+        replicas: Optional desired replica count.
         environment: Deployment environment.
         status: Initial operational status.
     """
@@ -62,11 +94,28 @@ class ApplicationCreate(BaseModel):
         default=None,
         max_length=MAX_APPLICATION_DESCRIPTION_LENGTH,
     )
+    port: int | None = Field(
+        default=None,
+        ge=MIN_APPLICATION_PORT,
+        le=MAX_APPLICATION_PORT,
+    )
+    image: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_APPLICATION_IMAGE_LENGTH,
+        pattern=r"^\S+$",
+    )
+    replicas: int | None = Field(
+        default=None,
+        ge=MIN_APPLICATION_REPLICAS,
+        le=MAX_APPLICATION_REPLICAS,
+    )
     environment: Environment
     status: ApplicationStatus = ApplicationStatus.UNKNOWN
 
     # Normalizes names before applying the declared length constraints.
     @field_validator("name", mode="before")
+    @classmethod
     def _normalize_name(cls, value: object) -> object:
         """Strip whitespace from a create request name.
 
@@ -81,6 +130,23 @@ class ApplicationCreate(BaseModel):
         logger.debug("ApplicationCreate._normalize_name exit")
         return result
 
+    # Normalizes image references before applying their declared constraints.
+    @field_validator("image", mode="before")
+    @classmethod
+    def _normalize_image(cls, value: object) -> object:
+        """Strip surrounding whitespace from a create image reference.
+
+        Args:
+            value: Raw image value from the request body.
+
+        Returns:
+            The normalized image candidate.
+        """
+        logger.debug("ApplicationCreate._normalize_image entry")
+        result = _strip_application_image(value)
+        logger.debug("ApplicationCreate._normalize_image exit")
+        return result
+
 
 # Defines the optional, explicit payload for updating an application.
 class ApplicationUpdate(BaseModel):
@@ -91,6 +157,9 @@ class ApplicationUpdate(BaseModel):
         description: Optional replacement or explicit clear value.
         environment: Optional replacement environment.
         status: Optional replacement status.
+        port: Optional replacement or explicit clear value.
+        image: Optional replacement or explicit clear value.
+        replicas: Optional replacement or explicit clear value.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -106,9 +175,26 @@ class ApplicationUpdate(BaseModel):
     )
     environment: Environment | None = None
     status: ApplicationStatus | None = None
+    port: int | None = Field(
+        default=None,
+        ge=MIN_APPLICATION_PORT,
+        le=MAX_APPLICATION_PORT,
+    )
+    image: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_APPLICATION_IMAGE_LENGTH,
+        pattern=r"^\S+$",
+    )
+    replicas: int | None = Field(
+        default=None,
+        ge=MIN_APPLICATION_REPLICAS,
+        le=MAX_APPLICATION_REPLICAS,
+    )
 
     # Normalizes names before applying the declared length constraints.
     @field_validator("name", mode="before")
+    @classmethod
     def _normalize_name(cls, value: object) -> object:
         """Strip whitespace from an update request name.
 
@@ -121,6 +207,23 @@ class ApplicationUpdate(BaseModel):
         logger.debug("ApplicationUpdate._normalize_name entry")
         result = _strip_application_name(value)
         logger.debug("ApplicationUpdate._normalize_name exit")
+        return result
+
+    # Normalizes image references before applying their declared constraints.
+    @field_validator("image", mode="before")
+    @classmethod
+    def _normalize_image(cls, value: object) -> object:
+        """Strip surrounding whitespace from an update image reference.
+
+        Args:
+            value: Raw image value from the request body.
+
+        Returns:
+            The normalized image candidate.
+        """
+        logger.debug("ApplicationUpdate._normalize_image entry")
+        result = _strip_application_image(value)
+        logger.debug("ApplicationUpdate._normalize_image exit")
         return result
 
     # Enforces explicit-field semantics for PATCH requests.
@@ -160,10 +263,16 @@ class ApplicationRead(BaseModel):
         id: UUID4 string identifier.
         name: Exact stored application name.
         description: Optional application description.
+        port: Optional container port.
+        image: Optional container image reference.
+        replicas: Optional desired replica count.
         environment: Deployment environment.
         status: Operational status.
         created_at: UTC creation timestamp.
         updated_at: UTC last-update timestamp.
+        latest_deployment_version: Version of the newest deployment, if any.
+        latest_deployment_status: Status of the newest deployment, if any.
+        latest_deployment_at: Best available timestamp for the newest deployment.
     """
 
     model_config = ConfigDict(extra="forbid", from_attributes=True)
@@ -171,10 +280,17 @@ class ApplicationRead(BaseModel):
     id: str
     name: str
     description: str | None
+    port: int | None = None
+    image: str | None = None
+    replicas: int | None = None
     environment: Environment
     status: ApplicationStatus
     created_at: datetime
     updated_at: datetime
+    # WHY: deployment summaries are server-derived and never accepted on requests.
+    latest_deployment_version: str | None = None
+    latest_deployment_status: DeploymentStatus | None = None
+    latest_deployment_at: datetime | None = None
 
 
 # Defines the paginated serialized representation of applications.

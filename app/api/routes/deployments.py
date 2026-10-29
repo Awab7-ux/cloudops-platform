@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
@@ -10,9 +11,12 @@ from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.deployment import DeploymentStatus
 from app.schemas.deployment import (
     DeploymentCreate,
+    DeploymentGlobalQuery,
     DeploymentList,
     DeploymentRead,
     DeploymentStatusUpdate,
+    GlobalDeploymentList,
+    GlobalDeploymentRead,
 )
 from app.services.deployment import DeploymentService, get_deployment_service
 
@@ -102,6 +106,46 @@ def list_deployments(
     )
     logger.debug(
         "list_deployments exit: item_count=%d total=%d",
+        len(response.items),
+        response.total,
+    )
+    return response
+
+
+# Lists deployments across applications through the injected service.
+@router.get(
+    "/deployments",
+    response_model=GlobalDeploymentList,
+    status_code=200,
+)
+def list_global_deployments(
+    query: Annotated[DeploymentGlobalQuery, Query()],
+    service: DeploymentService = Depends(get_deployment_service),
+) -> GlobalDeploymentList:
+    """List deployments with optional application, status, environment, and text filters.
+
+    Args:
+        query: Validated global filters and page bounds.
+        service: Injected deployment service.
+
+    Returns:
+        A paginated global deployment response.
+    """
+    logger.debug(
+        "list_global_deployments entry: limit=%d offset=%d has_query=%s",
+        query.limit,
+        query.offset,
+        query.q is not None,
+    )
+    items, total = service.list_global(query)
+    response = GlobalDeploymentList(
+        items=[GlobalDeploymentRead.model_validate(item) for item in items],
+        total=total,
+        limit=query.limit,
+        offset=query.offset,
+    )
+    logger.debug(
+        "list_global_deployments exit: item_count=%d total=%d",
         len(response.items),
         response.total,
     )

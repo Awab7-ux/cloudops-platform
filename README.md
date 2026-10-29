@@ -146,6 +146,20 @@ Successful responses are JSON; the status code depends on the endpoint.
 | `GET` | `/health` | `{"status":"ok"}` |
 | `GET` | `/version` | `{"name":"CloudOps Platform","version":"0.1.0"}` |
 
+### Applications API
+
+`POST /applications` accepts optional `port` (integer, 1–65535), `image` (trimmed, 1–255 characters with no internal whitespace), and `replicas` (integer, 0–1000). Omitted values default to `null`. `PATCH /applications/{application_id}` changes only fields sent; sending `null` clears any of these three optional fields. Unknown fields are rejected.
+
+Application responses include `latest_deployment_version`, `latest_deployment_status`, and `latest_deployment_at`. These fields are derived from the application's newest deployment and are `null` when it has no deployments. The timestamp uses `finished_at`, then `started_at`, then `created_at` from that deployment. Clients cannot send these derived fields.
+
+### Deployments API
+
+`POST /applications/{application_id}/deployments` accepts optional `branch` and `initiator` strings. Each is trimmed and must contain 1–100 characters. They are immutable after creation; `PATCH /deployments/{deployment_id}/status` continues to accept only the deployment status.
+
+`GET /deployments` lists deployments across applications. It accepts optional `application_id`, `status`, `environment` (`development`, `staging`, or `production`), and `q` filters. `q` is trimmed, 1–100 characters, and performs a case-insensitive literal substring search over deployment `version`, `commit_sha`, and `branch`, plus the application `name`. `limit` defaults to `50` and has a maximum of `200`; `offset` defaults to `0`. Results are ordered by `created_at` descending, then `id` ascending. The response contains `{items,total,limit,offset}`; every item includes all deployment fields plus `application_name` and `application_environment`.
+
+On startup, SQLite databases receive an idempotent additive upgrade for the five nullable design fields after table creation. It preserves existing rows and adds only missing columns. This is an additive column upgrade only; general schema migrations are not implemented yet, and Alembic is a later step.
+
 ### Summary and alerts API
 
 The dashboard summary is computed from live application, deployment, and log aggregates without creating new tables. `GET /summary` returns total counts, zero-filled status and environment buckets, deployment counts created in the trailing 24 hours, and error-log counts in the same window. Window bounds are UTC, inclusive at both the 24-hour lower bound and `generated_at`. The response includes the five newest failed deployments in descending creation order.

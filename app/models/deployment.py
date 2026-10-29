@@ -64,6 +64,9 @@ class Deployment(Base):
     )
     version: Mapped[str] = mapped_column(String(64), nullable=False)
     commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # WHY: branch and initiator are creation metadata and remain immutable by API.
+    branch: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    initiator: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[DeploymentStatus] = mapped_column(
         SqlEnum(
             DeploymentStatus,

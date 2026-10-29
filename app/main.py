@@ -37,6 +37,7 @@ from app.core.logging import safe_log_value, setup_logging
 from app.core.middleware import RequestIdMiddleware
 from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
+from app.db.upgrade import upgrade_sqlite_schema
 
 # Re-exported so existing tests that do
 #   ``from app.main import DEFAULT_APP_NAME, DEFAULT_APP_VERSION``
@@ -60,9 +61,10 @@ async def _database_lifespan(application: FastAPI) -> AsyncIterator[None]:
     """
     logger.debug("_database_lifespan entry")
     engine: Engine = application.state.engine
-    # WHY: temporary table creation keeps local setup simple until migrations exist.
-    Base.metadata.create_all(bind=engine)
     try:
+        # WHY: table creation precedes the additive upgrade for legacy volumes.
+        Base.metadata.create_all(bind=engine)
+        upgrade_sqlite_schema(engine)
         yield
     finally:
         engine.dispose()
