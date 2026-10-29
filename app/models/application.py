@@ -7,7 +7,7 @@ from enum import Enum
 import logging
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Enum as SqlEnum, String
+from sqlalchemy import DateTime, Enum as SqlEnum, Integer, String
 from sqlalchemy.engine import Dialect
 from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
@@ -149,6 +149,10 @@ class Application(Base):
     # WHY: uniqueness is exact and case-sensitive after schema stripping by contract.
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # WHY: these optional deployment display values are nullable for legacy rows.
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    replicas: Mapped[int | None] = mapped_column(Integer, nullable=True)
     environment: Mapped[Environment] = mapped_column(
         SqlEnum(
             Environment,
