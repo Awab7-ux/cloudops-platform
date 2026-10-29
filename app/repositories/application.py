@@ -13,6 +13,7 @@ from app.core.logging import safe_log_value
 from app.core.pagination import validate_pagination
 from app.domain.exceptions import ConflictError
 from app.models.application import Application, ApplicationStatus, Environment
+from app.models.deployment import Deployment
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,8 @@ class ApplicationRepository:
         result = self._session.scalar(
             select(Application).where(Application.id == application_id)
         )
+        if result is not None:
+            self._attach_latest_deployments([result])
         logger.debug(
             "ApplicationRepository.get exit: found=%s",
             result is not None,
@@ -193,12 +196,79 @@ class ApplicationRepository:
             self._session.scalars(statement.limit(limit).offset(offset)).all()
         )
         total = int(self._session.scalar(count_statement) or 0)
+        self._attach_latest_deployments(items)
         logger.debug(
             "ApplicationRepository.list exit: item_count=%d total=%d",
             len(items),
             total,
         )
         return items, total
+
+    # Adds server-derived deployment fields to one application's response data.
+    def _attach_latest_deployments(self, applications: list[Application]) -> None:
+        """Attach latest deployment values with one window query for the page.
+
+        Args:
+            applications: Application rows being serialized in this response.
+        """
+        logger.debug(
+            "ApplicationRepository._attach_latest_deployments entry: "
+            "application_count=%d",
+            len(applications),
+        )
+        # WHY: these values are response-only; request schemas never expose them.
+        for application in applications:
+            application.latest_deployment_version = None
+            application.latest_deployment_status = None
+            application.latest_deployment_at = None
+        if not applications:
+            logger.debug(
+                "ApplicationRepository._attach_latest_deployments exit: "
+                "deployment_count=%d",
+                0,
+            )
+            return
+
+        application_ids = [application.id for application in applications]
+        # WHY: row_number ranks all deployments once, using the alert rule's
+        # created_at ordering and deterministic ID tie-break for the whole page.
+        ranked_deployments = (
+            select(
+                Deployment.application_id.label("application_id"),
+                Deployment.version.label("version"),
+                Deployment.status.label("status"),
+                func.coalesce(
+                    Deployment.finished_at,
+                    Deployment.started_at,
+                    Deployment.created_at,
+                ).label("latest_at"),
+                func.row_number()
+                .over(
+                    partition_by=Deployment.application_id,
+                    order_by=(Deployment.created_at.desc(), Deployment.id.asc()),
+                )
+                .label("deployment_rank"),
+            )
+            .where(Deployment.application_id.in_(application_ids))
+            .subquery()
+        )
+        latest_statement = select(ranked_deployments).where(
+            ranked_deployments.c.deployment_rank == 1
+        )
+        applications_by_id = {
+            application.id: application for application in applications
+        }
+        latest_rows = self._session.execute(latest_statement).all()
+        for latest_row in latest_rows:
+            application = applications_by_id[latest_row.application_id]
+            application.latest_deployment_version = latest_row.version
+            application.latest_deployment_status = latest_row.status
+            application.latest_deployment_at = latest_row.latest_at
+        logger.debug(
+            "ApplicationRepository._attach_latest_deployments exit: "
+            "deployment_count=%d",
+            len(latest_rows),
+        )
 
     # Commits changes to an existing application row.
     def update(self, application: Application) -> Application:
