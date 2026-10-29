@@ -15,6 +15,7 @@ from app.repositories.application import ApplicationRepository
 from app.repositories.deployment import DeploymentRepository
 from app.schemas.deployment import (
     DeploymentCreate,
+    DeploymentGlobalQuery,
     DeploymentStatusUpdate,
 )
 from app.services.application import get_application_repository
@@ -87,6 +88,8 @@ class DeploymentService:
             application_id=application_id,
             version=payload.version,
             commit_sha=commit_sha,
+            branch=payload.branch,
+            initiator=payload.initiator,
             status=DeploymentStatus.PENDING,
             created_at=creation_time,
         )
@@ -94,6 +97,37 @@ class DeploymentService:
         logger.debug(
             "DeploymentService.create_for_application exit: id_len=%d",
             len(result.id),
+        )
+        return result
+
+    # Lists deployments across applications using validated global filters.
+    def list_global(
+        self,
+        query: DeploymentGlobalQuery,
+    ) -> tuple[list[Deployment], int]:
+        """List deployments across applications with pagination and filters.
+
+        Args:
+            query: Validated global-list filters and page bounds.
+
+        Returns:
+            A tuple containing deployments on the page and matching total count.
+        """
+        logger.debug(
+            "DeploymentService.list_global entry: has_application_id=%s "
+            "status=%s environment=%s has_query=%s limit=%d offset=%d",
+            query.application_id is not None,
+            safe_log_value(query.status.value if query.status else None),
+            safe_log_value(query.environment.value if query.environment else None),
+            query.q is not None,
+            query.limit,
+            query.offset,
+        )
+        result = self._repository.list_global(query)
+        logger.debug(
+            "DeploymentService.list_global exit: item_count=%d total=%d",
+            len(result[0]),
+            result[1],
         )
         return result
 
