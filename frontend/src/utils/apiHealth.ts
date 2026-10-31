@@ -2,6 +2,8 @@
  * API Health client configuration and payload validation helpers.
  */
 
+import { resolveApiBaseUrl } from '../api/client';
+
 export interface HealthResponse {
   status: string;
   service?: string;
@@ -15,11 +17,7 @@ export interface VersionResponse {
 }
 
 export function getDefaultApiBaseUrl(): string {
-  // Check import.meta.env for VITE_API_BASE_URL, default to http://localhost:8000
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '');
-  }
-  return 'http://localhost:8000';
+  return resolveApiBaseUrl(undefined, { ignoreConfiguredUrl: true });
 }
 
 export function isValidHealthPayload(data: unknown): data is HealthResponse {
@@ -35,7 +33,7 @@ export function isValidVersionPayload(data: unknown): data is VersionResponse {
 }
 
 export function formatEndpointUrl(baseUrl: string, endpoint: string): string {
-  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const cleanBase = resolveApiBaseUrl(baseUrl);
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   return `${cleanBase}${cleanEndpoint}`;
 }
