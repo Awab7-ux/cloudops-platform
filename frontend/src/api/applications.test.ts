@@ -17,6 +17,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function applicationResponse(id: string, name: string) {
+  return {
+    id,
+    name,
+    description: null,
+    environment: 'development',
+    status: 'unknown',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+}
+
 describe('application API client', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -29,7 +41,7 @@ describe('application API client', () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://api.example.test/root/');
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ items: [], total: 0, limit: 25, offset: 50 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'a/b', name: 'App' }));
+      .mockResolvedValueOnce(jsonResponse(applicationResponse('a/b', 'App')));
     vi.stubGlobal('fetch', fetchMock);
 
     await listApplications({ limit: 25, offset: 50 });
@@ -44,11 +56,30 @@ describe('application API client', () => {
     expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Content-Type')).toBe(false);
   });
 
+  it('sends supported application filters as backend query parameters', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://api.test');
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ items: [], total: 0, limit: 10, offset: 0 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listApplications({
+      limit: 10,
+      offset: 0,
+      environment: 'production',
+      status: 'degraded',
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://api.test/applications?limit=10&offset=0&environment=production&status=degraded',
+    );
+  });
+
   // WHY: JSON content type is required on writes but should not be attached to bodyless reads.
   it('sends only schema fields as JSON for create requests', async () => {
     vi.stubEnv('VITE_API_BASE_URL', 'http://api.test');
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ id: 'app-1', name: 'New', environment: 'development' }, 201),
+      jsonResponse({ ...applicationResponse('app-1', 'New'), description: null }, 201),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -144,7 +175,7 @@ describe('application API client', () => {
     it('gets an encoded application URL without a body or Content-Type header', async () => {
       vi.stubEnv('VITE_API_BASE_URL', API_BASE_URL);
       const fetchMock = vi.fn().mockResolvedValue(
-        jsonResponse({ id: 'a b/c', name: 'Encoded' }),
+        jsonResponse(applicationResponse('a b/c', 'Encoded')),
       );
       vi.stubGlobal('fetch', fetchMock);
 
@@ -163,7 +194,7 @@ describe('application API client', () => {
     it('patches an encoded application URL with only the supplied fields', async () => {
       vi.stubEnv('VITE_API_BASE_URL', API_BASE_URL);
       const fetchMock = vi.fn().mockResolvedValue(
-        jsonResponse({ id: 'a b/c', name: 'Updated' }),
+        jsonResponse(applicationResponse('a b/c', 'Updated')),
       );
       vi.stubGlobal('fetch', fetchMock);
       const update = { description: null };
