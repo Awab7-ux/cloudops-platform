@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { executeProbe, resolveBaseUrl } from '../services/apiService.ts';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { resolveApiBaseUrl, resetConfiguredApiBaseUrl, setConfiguredApiBaseUrl } from '../api/client';
+import { executeProbe } from '../services/apiService.ts';
 
 export interface HealthState {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -56,10 +57,11 @@ export interface ApiContextType {
 const ApiContext = createContext<ApiContextType | null>(null);
 
 export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [baseUrl, setBaseUrlState] = useState<string>(() => resolveBaseUrl());
+  const [baseUrl, setBaseUrlState] = useState<string>(() => resolveApiBaseUrl());
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | null>(10000);
   const [isProbing, setIsProbing] = useState<boolean>(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const probeSequence = useRef(0);
 
   // Chaos & simulation toggles
   const [chaosSpike, setChaosSpike] = useState<boolean>(false);
@@ -72,7 +74,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rttMs: 0,
     responseTimeMs: 0,
     httpStatus: 0,
-    url: `${resolveBaseUrl()}/health`,
+    url: `${baseUrl}/health`,
   });
 
   const [version, setVersion] = useState<VersionState>({
@@ -82,7 +84,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rttMs: 0,
     responseTimeMs: 0,
     httpStatus: 0,
-    url: `${resolveBaseUrl()}/version`,
+    url: `${baseUrl}/version`,
   });
 
   const [root, setRoot] = useState<RootState>({
@@ -92,12 +94,17 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rttMs: 0,
     responseTimeMs: 0,
     httpStatus: 0,
-    url: `${resolveBaseUrl()}/`,
+    url: `${baseUrl}/`,
   });
 
   const setBaseUrl = (url: string) => {
-    const cleaned = resolveBaseUrl(url);
+    const cleaned = setConfiguredApiBaseUrl(url);
+    probeSequence.current += 1;
     setBaseUrlState(cleaned);
+    setIsProbing(true);
+    setHealth(prev => ({ ...prev, status: 'loading', url: `${cleaned}/health` }));
+    setVersion(prev => ({ ...prev, status: 'loading', url: `${cleaned}/version` }));
+    setRoot(prev => ({ ...prev, status: 'loading', url: `${cleaned}/` }));
   };
 
   const setPollingInterval = (ms: number) => {
@@ -105,16 +112,20 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const refreshProbes = useCallback(async () => {
+    const sequence = ++probeSequence.current;
+    const probeBaseUrl = resolveApiBaseUrl();
     setIsProbing(true);
-    setHealth(prev => ({ ...prev, status: 'loading' }));
-    setVersion(prev => ({ ...prev, status: 'loading' }));
-    setRoot(prev => ({ ...prev, status: 'loading' }));
+    setHealth(prev => ({ ...prev, status: 'loading', url: `${probeBaseUrl}/health` }));
+    setVersion(prev => ({ ...prev, status: 'loading', url: `${probeBaseUrl}/version` }));
+    setRoot(prev => ({ ...prev, status: 'loading', url: `${probeBaseUrl}/` }));
 
     const [healthRes, versionRes, rootRes] = await Promise.all([
-      executeProbe(baseUrl, '/health'),
-      executeProbe(baseUrl, '/version'),
-      executeProbe(baseUrl, '/'),
+      executeProbe(probeBaseUrl, '/health'),
+      executeProbe(probeBaseUrl, '/version'),
+      executeProbe(probeBaseUrl, '/'),
     ]);
+
+    if (sequence !== probeSequence.current) return;
 
     setHealth({
       status: healthRes.ok ? 'success' : 'error',
@@ -123,7 +134,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rttMs: healthRes.rttMs,
       responseTimeMs: healthRes.rttMs,
       httpStatus: healthRes.status,
-      url: `${baseUrl}/health`,
+      url: `${probeBaseUrl}/health`,
     });
 
     setVersion({
@@ -133,7 +144,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rttMs: versionRes.rttMs,
       responseTimeMs: versionRes.rttMs,
       httpStatus: versionRes.status,
-      url: `${baseUrl}/version`,
+      url: `${probeBaseUrl}/version`,
     });
 
     setRoot({
@@ -143,15 +154,15 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rttMs: rootRes.rttMs,
       responseTimeMs: rootRes.rttMs,
       httpStatus: rootRes.status,
-      url: `${baseUrl}/`,
+      url: `${probeBaseUrl}/`,
     });
 
     setLastChecked(new Date());
     setIsProbing(false);
-  }, [baseUrl]);
+  }, []);
 
   const testCustomUrl = async (url: string) => {
-    const target = resolveBaseUrl(url);
+    const target = resolveApiBaseUrl(url);
     const res = await executeProbe(target, '/health', 3000);
     if (res.ok) {
       return { ok: true, message: `Connected (HTTP 200, ${res.rttMs}ms)`, rttMs: res.rttMs };
@@ -163,7 +174,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setChaosSpike(false);
     setCanaryFailure(false);
     setAutoRefreshInterval(10000);
-    setBaseUrlState(resolveBaseUrl());
+    setBaseUrlState(resetConfiguredApiBaseUrl());
     refreshProbes();
   };
 
