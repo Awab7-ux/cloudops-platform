@@ -67,23 +67,6 @@ export const Sidebar: React.FC = () => {
               </div>
             </NavLink>
 
-            {/* Application Details sub-item */}
-            <NavLink
-              to="/applications/auth-service"
-              className={({ isActive }) =>
-                `flex items-center justify-between px-space-md py-space-xs rounded-lg transition-colors pl-space-xl text-body-sm ${
-                  isActive
-                    ? 'bg-primary-container/90 text-on-primary-container font-semibold'
-                    : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                }`
-              }
-            >
-              <span className="truncate">Application Details</span>
-              <span className="px-space-xs py-space-xxs rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-[10px]">
-                App
-              </span>
-            </NavLink>
-
             {/* Deployments */}
             <NavLink
               to="/deployments"
@@ -99,23 +82,6 @@ export const Sidebar: React.FC = () => {
                 <span className="material-symbols-outlined text-[20px]">rocket_launch</span>
                 <span className="font-body-md text-body-md">Deployments</span>
               </div>
-            </NavLink>
-
-            {/* Deployment Details sub-item */}
-            <NavLink
-              to="/deployments/dep-9842f1"
-              className={({ isActive }) =>
-                `flex items-center justify-between px-space-md py-space-xs rounded-lg transition-colors pl-space-xl text-body-sm ${
-                  isActive
-                    ? 'bg-primary-container/90 text-on-primary-container font-semibold'
-                    : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                }`
-              }
-            >
-              <span className="truncate">Deployment Details</span>
-              <span className="px-space-xs py-space-xxs rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-[10px]">
-                CI/CD
-              </span>
             </NavLink>
 
             {/* Infrastructure */}
@@ -134,7 +100,7 @@ export const Sidebar: React.FC = () => {
                 <span className="font-body-md text-body-md">Infrastructure</span>
               </div>
               <span className="px-space-xs py-space-xxs rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm">
-                Demo
+                Unavailable
               </span>
             </NavLink>
 
