@@ -1,7 +1,13 @@
 /**
  * Backend API service layer.
- * Probes real endpoints GET /health and GET /version at VITE_API_BASE_URL (default: http://localhost:8000).
+ * Probes the configured API endpoints using the shared API base URL resolver.
  */
+
+import { resolveApiBaseUrl } from '../api/client';
+import { formatEndpointUrl } from '../utils/apiHealth';
+
+// Preserve the existing service export while sharing the API client's resolver.
+export { resolveApiBaseUrl as resolveBaseUrl } from '../api/client';
 
 export interface ProbeResult<T = unknown> {
   ok: boolean;
@@ -10,17 +16,6 @@ export interface ProbeResult<T = unknown> {
   error?: string;
   rttMs: number;
   timestamp: Date;
-}
-
-export function resolveBaseUrl(customUrl?: string): string {
-  if (customUrl && customUrl.trim()) {
-    return customUrl.trim().replace(/\/+$/, '');
-  }
-  const envUrl = (import.meta.env?.VITE_API_BASE_URL as string | undefined);
-  if (envUrl && envUrl.trim()) {
-    return envUrl.trim().replace(/\/+$/, '');
-  }
-  return 'http://localhost:8000';
 }
 
 /**
@@ -32,7 +27,7 @@ export async function executeProbe<T = unknown>(
   timeoutMs: number = 4000
 ): Promise<ProbeResult<T>> {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const fullUrl = `${baseUrl}${cleanEndpoint}`;
+  const fullUrl = formatEndpointUrl(resolveApiBaseUrl(baseUrl), cleanEndpoint);
   const startTime = performance.now();
 
   const controller = new AbortController();
