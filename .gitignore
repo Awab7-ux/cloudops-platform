@@ -58,6 +58,16 @@ __pycache__/
 .pytest_cache/
 cloudops.db
 
+# Terraform local state and machine-specific values
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfstate.lock.info
+crash.log
+crash.*.log
+terraform.tfvars
+
 # Local secrets and credentials
 .env
 .env.*
