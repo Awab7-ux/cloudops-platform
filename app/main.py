@@ -34,6 +34,7 @@ from app.core.config import (
 )
 from app.core.errors import register_exception_handlers
 from app.core.logging import safe_log_value, setup_logging
+from app.core.metrics import CloudOpsMetrics
 from app.core.middleware import RequestIdMiddleware
 from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
     setup_logging(settings.log_level)
     engine = create_db_engine(settings.database_url)
     session_factory = create_session_factory(engine)
+    metrics = CloudOpsMetrics()
 
     application = FastAPI(
         title=settings.app_name,
@@ -113,6 +115,7 @@ def create_app() -> FastAPI:
     application.state.settings = settings
     application.state.engine = engine
     application.state.session_factory = session_factory
+    application.state.metrics = metrics
 
     # --- Exception handlers (innermost — part of the ASGI app) ---
     register_exception_handlers(application)
@@ -136,7 +139,7 @@ def create_app() -> FastAPI:
     # exceptions inside the stack so the 500 response travels back
     # through CORSMiddleware and gets both X-Request-ID and CORS
     # headers.
-    application.add_middleware(RequestIdMiddleware)
+    application.add_middleware(RequestIdMiddleware, metrics=metrics)
 
     # CORS: outermost layer — allow only configured origins and API
     # methods, never send credentials.  Wildcard "*" is already rejected
