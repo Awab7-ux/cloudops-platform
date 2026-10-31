@@ -1,9 +1,10 @@
 # CloudOps Platform
 
-CloudOps Platform is a small, container-ready REST API built with Python and
-FastAPI. This phase establishes a tested service foundation and adds a GitHub
-Actions workflow for automated tests. It does not include cloud provisioning,
-Kubernetes, or Terraform.
+CloudOps Platform is a local-first operations console built with FastAPI,
+SQLite, React, and TypeScript. Applications, deployments, summaries, logs, and
+alerts are backed by the API. Docker Compose runs the local app, Kind runs the
+Kubernetes version, and Terraform owns the Compose network and persistent
+database volume. No paid cloud provider is required.
 
 ## Backend architecture
 
@@ -37,6 +38,7 @@ are isolated in `requirements-dev.txt`.
 | `APP_NAME` | `CloudOps Platform` | Service name returned by `/` and `/version` |
 | `APP_VERSION` | `0.1.0` | Version returned by `/version` |
 | `PORT` | `8000` | Port used by the Docker container command |
+| `DATABASE_URL` | `sqlite:///./cloudops.db` | SQLAlchemy database URL; Compose and Kind use `sqlite:////data/cloudops.db` |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated allowed origins |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 
@@ -66,25 +68,35 @@ value is accepted only when it is at most 64 characters and contains only
 `[A-Za-z0-9._-]`; otherwise, a new ID is generated. Unexpected errors return
 `{"detail": "Internal Server Error"}` without leaking details.
 
-Run the tests with:
+`GET /metrics` exposes real Prometheus counters and histograms for HTTP request
+counts, 5xx responses, and latency. It also refreshes application, deployment,
+and log gauges from the same database summary used by `/summary`. The scrape
+route excludes its own requests and uses route templates instead of raw URLs as
+labels.
 
-```powershell
-python -m pytest -q
-```
+The Kubernetes monitoring manifests configure Prometheus to scrape the API and
+namespace-scoped `kube-state-metrics`, and provision Grafana dashboards for API
+rates, errors, latency, application/deployment totals, pod readiness, restarts,
+and PVC status. Those dashboards become available after the monitoring pods are
+Ready. This local setup does not install a node exporter, so host CPU and memory
+usage are not reported as metrics.
 
 ### Known limitations
 
-- SQLite is single-writer and there are no schema migrations.
-- No authentication.
-- Frontend pages other than Applications still use clearly labeled demo data;
-  the Applications page and the `/health` and `/version` probes use the live API.
+- SQLite is single-writer and tables are created at startup; there are no schema migrations or automated backups.
+- The API has no authentication or authorization.
+- The Monitoring page reads backend `/metrics`; cluster target status and Infrastructure inventory are unavailable in the browser because the backend exposes no Kubernetes API.
+- The configured kube-state-metrics v2.20.0 release documents Kubernetes v1.36 support, while the existing Kind node image is v1.37.0. This compatibility gap is a risk, not a proven cause of the current API outage.
+- A local Kind cluster is for development and is not a highly available production Kubernetes environment.
 
 ## Frontend
 
-The Applications page reads and manages application records through the live
-backend API (`GET`, `POST`, `PATCH`, and `DELETE /applications`). The other
-dashboard pages remain demo views. The API client reads its base URL only from
-`VITE_API_BASE_URL`.
+Applications CRUD and details, application-scoped deployments and lifecycle
+transitions, the overview summary, logs, alerts, and backend metrics use real API
+routes. Alert acknowledgement, resolution, playbooks, notification channels,
+incident history, Kubernetes inventory, and cluster resource time series are
+not exposed by the backend and appear as unavailable. The API client reads its
+base URL only from `VITE_API_BASE_URL`.
 
 Run the frontend from `frontend/` in PowerShell:
 
@@ -102,17 +114,16 @@ uses the `VITE_API_BASE_URL` build argument.
 Run frontend checks from `frontend/`:
 
 ```powershell
-npm run lint
-npm run test
-npx tsx --test src/utils/telemetry.test.ts
-npm run build
+python -m pytest -q
 ```
 
 ## Requirements
 
 - Python 3.10 or newer
+- Node.js 22 or newer
 - pip
-- Docker Desktop is optional and is only needed to build or run the container
+- Docker Desktop
+- Kind, kubectl, and Terraform 1.17.x for local Kubernetes and infrastructure work
 
 ## Setup on Windows 11
 
@@ -201,107 +212,98 @@ configuration, and the not-found status for an unknown route.
 ## GitHub Actions CI
 
 The workflow at `.github/workflows/ci.yml` runs on pushes to `main` and on pull
-requests targeting `main`. It uses Ubuntu and Python 3.12, creates a project-local
-`.venv`, installs `requirements-dev.txt` (which includes `requirements.txt`),
-and runs the same command used locally:
-
-```bash
-python -m pytest -q
-```
+requests targeting `main`. It runs the backend and frontend suites, checks the
+frontend lint and production build, builds both Docker images, validates
+Kubernetes manifests with kubeconform, and runs Terraform format, validation,
+and a non-applying plan. It does not deploy or apply infrastructure.
 
 The workflow grants only `contents: read` and requires no secrets or paid
-services. Dependency installation and test failures fail the job. To see a
-GitHub Actions result, push a commit or open a pull request and check the
-repository's **Actions** tab; a passing local test run is not a GitHub Actions
-run.
+services. To see a GitHub Actions result, push a commit or open a pull request
+and check the repository's **Actions** tab; local validation is not a GitHub
+Actions run.
 
-## Docker
+## Docker Compose
 
-Build the image from the project directory:
+Docker Compose runs the backend and production frontend. Both services bind to
+localhost only. The backend uses a non-root Python 3.12 image, read-only root
+filesystem, health check, and a persistent SQLite volume. The frontend uses an
+unprivileged Nginx image on internal port `8080` and exposes `/healthz`.
 
-```bash
-docker build -t cloudops-platform:local .
-```
-
-Run it locally (custom version via an environment variable):
-
-```bash
-docker run -d --name cloudops-test -p 8000:8000 -e APP_VERSION=1.0.0-local cloudops-platform:local
-```
-
-Test the endpoints:
-
-```bash
-curl http://localhost:8000/
-curl http://localhost:8000/health
-curl http://localhost:8000/version
-```
-
-Stop and remove the container:
-
-```bash
-docker rm -f cloudops-test
-```
-
-The container starts Uvicorn on port `8000` by default. The Dockerfile reads
-`PORT` for the listening port; if you change it, publish the same container
-port with `-p`.
-
-### Verified locally
-
-Tested on Windows 11 with Docker Desktop:
-
-- The image builds successfully from `python:3.12-slim`.
-- `GET /`, `GET /health` and `GET /version` return the expected JSON.
-- `APP_VERSION` is read from the environment; without it, `/version` returns the default `0.1.0`.
-- The container runs as a non-root user (`uid=10001`, `appuser`).
-- The frontend uses clearly labeled demo data everywhere except the live probes of the backend API (`GET /`, `GET /health`, `GET /version`).
-
-## Run with Docker
-
-Prerequisites:
-
-- Docker Desktop is installed and running.
-- Ports `3000` and `8000` are available on localhost.
-
-Commands:
+Terraform owns the external Compose network and database volume. On a new
+machine, initialize Terraform and review its plan first; the import and local
+state instructions are in [terraform/README.md](./terraform/README.md). Then
+start the services from the repository root:
 
 ```powershell
 docker compose up -d --build
 docker compose ps
 docker compose logs -f backend
-docker compose down
-```
-
-To delete the SQLite database volume entirely:
-
-```powershell
-docker compose down -v
 ```
 
 URLs:
 
 - Frontend: http://localhost:3000
 - API: http://localhost:8000
-- API docs: http://localhost:8000/docs
+- API documentation: http://localhost:8000/docs
+- Prometheus `/metrics`: http://localhost:8000/metrics
 
-Data location:
+The database is stored in the Terraform-managed Docker volume
+`cloudops-platform_cloudops-data` and mounted at `/data/cloudops.db`. A normal
+`docker compose down` leaves the external volume and network intact. Do not use
+`docker compose down -v` to reset data.
 
-- SQLite database is stored in the named Docker volume `cloudops-data`.
-- The backend uses `DATABASE_URL=sqlite:////data/cloudops.db` inside the container.
+## Kubernetes with Kind
 
-Change the API URL for a frontend rebuild:
+The current local cluster is named `cloudops-platform`; do not create another
+cluster if it already exists. The backend, frontend, namespace, static PV/PVC,
+and host-path setup are documented in [k8s/README.md](./k8s/README.md). The
+backend runs one replica because SQLite is single-writer. Its PV has a `Retain`
+reclaim policy and the backing host directory is ignored by Git.
+
+The monitoring workloads are separate Kubernetes resources. Create a local
+Grafana admin Secret without committing a credential, then apply them:
 
 ```powershell
-$env:VITE_API_BASE_URL="http://localhost:8000"; docker compose build frontend
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\k8s\monitoring\New-GrafanaAdminSecret.ps1
+kubectl apply -k k8s/monitoring
+kubectl rollout status deployment/kube-state-metrics -n cloudops-platform --timeout=180s
+kubectl rollout status deployment/prometheus -n cloudops-platform --timeout=180s
+kubectl rollout status deployment/grafana -n cloudops-platform --timeout=180s
 ```
 
-Limitations:
+Forward the Services in separate terminals:
 
-- Pages remain labeled as demo data except for the live API probes.
-- The frontend is not wired to `/applications` and `/deployments` yet.
-- SQLite is single-writer and has no migrations; tables are created at startup.
-- Ports are bound to localhost only and there is no TLS.
-- The API URL is fixed at build time.
-- No Content-Security-Policy has been added yet.
-- Docker build is not run in CI yet.
+```powershell
+kubectl port-forward -n cloudops-platform svc/prometheus 9090:9090
+kubectl port-forward -n cloudops-platform svc/grafana 3001:3000
+```
+
+Prometheus is at http://localhost:9090 and Grafana is at http://localhost:3001.
+Grafana's local login form is disabled and its anonymous role is Viewer. The
+Services remain `ClusterIP`; the port forwards bind to localhost.
+
+## Terraform
+
+Terraform manages the Compose Docker network and SQLite volume. It does not
+manage Kubernetes application manifests or Kind lifecycle. The existing
+community Kind providers replace clusters when most cluster settings change,
+which is too risky for this data-bearing local cluster. See
+[terraform/README.md](./terraform/README.md) for provider pins, import commands,
+local state, and plan review steps. Terraform state and machine-specific
+variables are ignored by Git.
+
+## Observability and operating limits
+
+The Prometheus endpoint reports actual HTTP request counts, 5xx responses,
+latency histograms, and application/deployment/log aggregates derived from the
+database. Kube-state-metrics is configured to report actual pod, deployment,
+and PVC state for the `cloudops-platform` namespace. Grafana dashboards are
+provisioned to use those real series.
+Prometheus retains 24 hours in an ephemeral volume; Grafana's data directory is
+also ephemeral, while its datasource and dashboard are provisioned from Git.
+
+This local stack does not include node-exporter, host CPU/memory series, or an
+Alertmanager notification pipeline. Prometheus alert rules are visible in the
+Prometheus UI. The API has no authentication, SQLite has no migrations or
+automated backups, and the Kind host-path setup is not highly available. This
+project is not production-ready.
