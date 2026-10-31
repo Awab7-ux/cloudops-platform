@@ -10,7 +10,7 @@ export interface MicroserviceItem {
   protocol: string;
   namespace: string;
   environment: 'Production' | 'Staging' | 'Dev';
-  health: 'Healthy' | 'Degraded' | 'Initializing';
+  health: 'Healthy' | 'Degraded' | 'Down' | 'Unknown' | 'Initializing';
   healthDetail?: string;
   version: string;
   replicasReady: number;
