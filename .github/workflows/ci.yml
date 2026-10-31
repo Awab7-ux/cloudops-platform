@@ -64,3 +64,71 @@ jobs:
 
       - name: Run component and API tests
         run: npm test
+
+  infrastructure:
+    name: Infrastructure validation
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_docker_host: unix:///var/run/docker.sock
+      KUBECONFORM_VERSION: v0.8.0
+      KUBERNETES_VERSION: 1.37.0
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.37.0
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build project container images
+        run: docker compose build
+
+      - name: Install kubeconform
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_dir="${RUNNER_TEMP}/kubeconform"
+          mkdir -p "${tool_dir}/bin"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            -o "${tool_dir}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS" \
+            -o "${tool_dir}/CHECKSUMS"
+          (
+            cd "${tool_dir}"
+            grep 'kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum --check --status
+          )
+          tar -xzf "${tool_dir}/kubeconform-linux-amd64.tar.gz" -C "${tool_dir}/bin" kubeconform
+          echo "${tool_dir}/bin" >> "${GITHUB_PATH}"
+
+      - name: Validate Kubernetes manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubeconform -strict -summary -kubernetes-version "${KUBERNETES_VERSION}" \
+            k8s/namespace.yaml k8s/pv.yaml k8s/pvc.yaml k8s/configmap.yaml \
+            k8s/backend.yaml k8s/frontend.yaml
+          kubectl kustomize k8s/monitoring | kubeconform -strict -summary \
+            -kubernetes-version "${KUBERNETES_VERSION}"
+          jq -e . k8s/monitoring/cloudops-runtime.json >/dev/null
+
+      - name: Initialize Terraform
+        run: terraform -chdir=terraform init
+
+      - name: Check Terraform formatting
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - name: Validate Terraform configuration
+        run: terraform -chdir=terraform validate
+
+      - name: Review local infrastructure plan
+        run: terraform -chdir=terraform plan -input=false
