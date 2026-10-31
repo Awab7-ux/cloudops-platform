@@ -1,18 +1,72 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getSummary } from '../api/summary';
+import { listLogs } from '../api/logs';
+import type { SummaryResponse } from '../api/types';
 import { useApi } from '../context/ApiContext.tsx';
-import {
-  OVERVIEW_METRICS,
-  CLUSTER_TELEMETRY,
-  NODE_CLUSTER_CAPACITY,
-  INITIAL_ACTIVITY_FEED,
-  ActivityEvent,
-} from '../data/overviewData.ts';
 
 export const OverviewPage: React.FC = () => {
   const { health, version, root, isProbing, refreshProbes, lastChecked, baseUrl } = useApi();
-  const [timeRange, setTimeRange] = useState<'1H' | '6H' | '24H' | '7D'>('1H');
-  const [activityFeed, setActivityFeed] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_FEED);
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [summaryState, setSummaryState] = useState<'loading' | 'success' | 'error'>('loading');
+  const [summaryError, setSummaryError] = useState('');
+  const [summaryRefresh, setSummaryRefresh] = useState(0);
   const [quickActionMessage, setQuickActionMessage] = useState<string | null>(null);
+  const nodeCapacity: Array<{ id: string; name: string; instanceType: string; cpu: number; ram: number; status: string }> = [];
+
+  useEffect(() => {
+    let active = true;
+    setSummaryState('loading');
+    setSummaryError('');
+    void getSummary()
+      .then(result => {
+        if (!active) return;
+        setSummary(result);
+        setSummaryState('success');
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setSummary(null);
+        setSummaryError(error instanceof Error ? error.message : 'Unable to load summary.');
+        setSummaryState('error');
+      });
+    return () => { active = false; };
+  }, [summaryRefresh]);
+
+  const summaryValue = summaryState === 'loading'
+    ? 'Loading…'
+    : summaryState === 'error' ? 'Unavailable' : '—';
+  const applicationTotal = summary?.applications.total;
+  const applicationHealthy = summary?.applications.by_status.healthy ?? 0;
+  const applicationDegraded = summary?.applications.by_status.degraded ?? 0;
+  const applicationDown = summary?.applications.by_status.down ?? 0;
+  const applicationUnknown = summary?.applications.by_status.unknown ?? 0;
+  const applicationOther = applicationDegraded + applicationDown + applicationUnknown;
+  const applicationStatusTotal = (applicationTotal ?? 0) > 0 ? applicationTotal ?? 0 : 0;
+  const applicationHealthyPercent = applicationStatusTotal > 0
+    ? (applicationHealthy / applicationStatusTotal) * 100
+    : 0;
+  const applicationOtherPercent = applicationStatusTotal > 0
+    ? (applicationOther / applicationStatusTotal) * 100
+    : 0;
+  const deploymentTotal = summary?.deployments.total;
+  const deploymentSucceeded = summary?.deployments.by_status.succeeded ?? 0;
+  const deploymentSuccessPercent = (deploymentTotal ?? 0) > 0
+    ? (deploymentSucceeded / (deploymentTotal ?? 1)) * 100
+    : 0;
+  const activityFeed = summary?.recent_failed_deployments.map(deployment => ({
+    id: deployment.id,
+    summary: `Latest deployment failed for ${deployment.application_name}`,
+    detail: deployment.commit_sha ? `Commit: ${deployment.commit_sha}` : 'Commit not available',
+    environment: 'Unavailable',
+    actor: 'Backend API',
+    status: deployment.status,
+    timestamp: deployment.finished_at
+      ? new Date(deployment.finished_at).toLocaleString()
+      : 'Timestamp unavailable',
+  })) ?? [];
+  const summaryBadge = summaryState === 'success'
+    ? 'Live API'
+    : summaryState === 'loading' ? 'Loading…' : 'Unavailable';
 
   const isConnected = health.status === 'success';
 
@@ -37,33 +91,21 @@ export const OverviewPage: React.FC = () => {
     setTimeout(() => setQuickActionMessage(null), 4000);
   };
 
-  const handleSimulateSpike = () => {
-    const spikeEvent: ActivityEvent = {
-      id: `sim-${Date.now()}`,
-      type: "Simulation",
-      summary: "Synthetic Load Injected: +2,500 RPS",
-      detail: "Autoscaler spun up 3 temporary worker pods (Demo data)",
-      environment: "prod-us-east-1",
-      actor: "Operator Console",
-      status: "Handled",
-      timestamp: "Just now",
-    };
-    setActivityFeed([spikeEvent, ...activityFeed]);
-    setQuickActionMessage("Injected synthetic load spike (+2,500 RPS) into cluster feed");
+  const handleExportLogs = async () => {
+    try {
+      const result = await listLogs({ limit: 200, offset: 0 });
+      const jsonStr = JSON.stringify(result.items, null, 2);
+      const url = URL.createObjectURL(new Blob([jsonStr], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `cloudops-logs-${Date.now()}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setQuickActionMessage(`Exported ${result.items.length} backend log records.`);
+    } catch (error: unknown) {
+      setQuickActionMessage(error instanceof Error ? error.message : 'Unable to export backend logs.');
+    }
     setTimeout(() => setQuickActionMessage(null), 3500);
-  };
-
-  const handleExportLogs = () => {
-    const jsonStr = JSON.stringify(activityFeed, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cloudops-activity-feed-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setQuickActionMessage("Exported operational audit log JSON feed");
-    setTimeout(() => setQuickActionMessage(null), 3000);
   };
 
   return (
@@ -85,7 +127,7 @@ export const OverviewPage: React.FC = () => {
           <div className="flex flex-col">
             <div className="flex items-center gap-space-xs flex-wrap">
               <span className="font-headline-sm text-headline-sm text-on-surface">
-                Frontend Demonstration Mode
+                CloudOps Platform Overview
               </span>
               <span className="px-space-xs py-space-xxs rounded bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm">
                 Live Probe Active
@@ -96,7 +138,7 @@ export const OverviewPage: React.FC = () => {
               <span className="font-code-inline text-code-inline text-primary bg-surface-container px-1 py-0.5 rounded">
                 {baseUrl}
               </span>
-              . Real FastAPI probes on{' '}
+              . FastAPI probes on{' '}
               <span className="font-code-inline text-code-inline text-primary bg-surface-container px-1 py-0.5 rounded">
                 /health
               </span>{' '}
@@ -104,7 +146,7 @@ export const OverviewPage: React.FC = () => {
               <span className="font-code-inline text-code-inline text-primary bg-surface-container px-1 py-0.5 rounded">
                 /version
               </span>
-              . Telemetry metrics below reflect sample demo state.
+              . Application and deployment totals are live backend data; Prometheus cluster metrics are not connected to this view.
             </p>
           </div>
         </div>
@@ -117,12 +159,15 @@ export const OverviewPage: React.FC = () => {
               }`}
             ></span>
             <span className="font-label-md text-label-md text-on-surface">
-              {isConnected ? `${health.rttMs || 18}ms` : 'ERR'}
+              {isConnected && health.rttMs !== undefined ? `${health.rttMs}ms` : 'Unavailable'}
             </span>
             <span className="text-on-surface-variant">RTT</span>
           </div>
           <button
-            onClick={() => refreshProbes()}
+            onClick={() => {
+              void refreshProbes();
+              setSummaryRefresh(value => value + 1);
+            }}
             disabled={isProbing}
             className="px-space-sm py-1.5 rounded-lg bg-primary text-on-primary font-body-sm text-body-sm flex items-center gap-space-xs shadow-sm hover:bg-tertiary transition-colors cursor-pointer disabled:opacity-50"
           >
@@ -173,8 +218,8 @@ export const OverviewPage: React.FC = () => {
             </span>
             <span className="font-headline-sm text-headline-sm text-on-surface font-label-md truncate">
               {version.status === 'success' && version.data?.version
-                ? `v${version.data.version} (${version.data.build || 'FastAPI-Core'})`
-                : 'v1.2.0 (FastAPI-Core)'}
+                ? `v${version.data.version}${version.data.build ? ` (${version.data.build})` : ''}`
+                : version.status === 'loading' ? 'Checking…' : 'Unavailable'}
             </span>
           </div>
         </div>
@@ -185,12 +230,12 @@ export const OverviewPage: React.FC = () => {
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">
-              Average Latency
+              Health Probe RTT
             </span>
             <span className="font-headline-sm text-headline-sm text-on-surface font-label-md truncate">
-              {isConnected
-                ? `${health.rttMs || 18.4} ms (p95: ${(health.rttMs || 18) + 5}ms)`
-                : 'Connection Failed'}
+              {health.status === 'success' && health.rttMs !== undefined
+                ? `${health.rttMs} ms`
+                : health.status === 'loading' ? 'Checking…' : 'Unavailable'}
             </span>
           </div>
         </div>
@@ -204,54 +249,59 @@ export const OverviewPage: React.FC = () => {
               Environment
             </span>
             <span className="font-headline-sm text-headline-sm text-on-surface truncate">
-              production-demo-east
+              Local environment
+            </span>
+            <span className="px-space-xs py-space-xxs rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm">
+              Local
             </span>
           </div>
         </div>
       </div>
 
-      {/* 4 Top KPI Cards (Labeled "Demo data") */}
+      {/* Backend summary and unavailable cluster metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-space-md">
         {/* Card 1: Applications */}
         <div className="flex flex-col justify-between p-space-lg rounded-xl bg-surface-container-lowest shadow-sm hover:shadow-md transition-shadow border border-surface-container-high/40">
           <div className="flex items-start justify-between">
             <div className="flex flex-col">
               <span className="font-body-sm text-body-sm text-on-surface-variant uppercase tracking-wider font-semibold">
-                {OVERVIEW_METRICS.applications.title}
+                Applications
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant">
-                {OVERVIEW_METRICS.applications.subtitle}
+                {summaryState === 'success'
+                  ? `Down: ${applicationDown} · Unknown: ${applicationUnknown}`
+                  : summaryValue}
               </span>
             </div>
-            <span className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
-              Demo data
+            <span title={summaryError || undefined} className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
+              {summaryBadge}
             </span>
           </div>
           <div className="flex items-baseline gap-space-sm my-space-md">
             <span className="font-metric-xl text-metric-xl text-on-surface">
-              {OVERVIEW_METRICS.applications.value}
+              {applicationTotal ?? summaryValue}
             </span>
             <span className="font-label-sm text-label-sm text-primary flex items-center gap-0.5">
               <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
-              {OVERVIEW_METRICS.applications.trend}
+              {summaryState === 'success' ? '—' : summaryValue}
             </span>
           </div>
           <div className="space-y-space-xs">
             <div className="flex justify-between items-center font-body-sm text-body-sm text-on-surface-variant">
-              <span>{OVERVIEW_METRICS.applications.healthyCount} Healthy</span>
+              <span>{summaryState === 'success' ? applicationHealthy : summaryValue} Healthy</span>
               <span className="text-error flex items-center gap-1 font-semibold">
                 <span className="h-1.5 w-1.5 rounded-full bg-error"></span>
-                {OVERVIEW_METRICS.applications.degradedCount} Degraded
+                {summaryState === 'success' ? applicationOther : summaryValue} Other
               </span>
             </div>
             <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden flex">
               <div
                 className="bg-primary h-full rounded-l-full"
-                style={{ width: `${OVERVIEW_METRICS.applications.healthyPercent}%` }}
+                style={{ width: `${applicationHealthyPercent}%` }}
               ></div>
               <div
                 className="bg-error h-full rounded-r-full"
-                style={{ width: `${OVERVIEW_METRICS.applications.degradedPercent}%` }}
+                style={{ width: `${applicationOtherPercent}%` }}
               ></div>
             </div>
           </div>
@@ -262,34 +312,36 @@ export const OverviewPage: React.FC = () => {
           <div className="flex items-start justify-between">
             <div className="flex flex-col">
               <span className="font-body-sm text-body-sm text-on-surface-variant uppercase tracking-wider font-semibold">
-                {OVERVIEW_METRICS.deployments.title}
+                Deployments
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant">
-                {OVERVIEW_METRICS.deployments.subtitle}
+                All recorded deployment states
               </span>
             </div>
-            <span className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
-              Demo data
+            <span title={summaryError || undefined} className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
+              {summaryBadge}
             </span>
           </div>
           <div className="flex items-baseline gap-space-sm my-space-md">
             <span className="font-metric-xl text-metric-xl text-on-surface">
-              {OVERVIEW_METRICS.deployments.value}
+              {deploymentTotal ?? summaryValue}
             </span>
             <span className="font-label-sm text-label-sm text-primary font-semibold">
-              {OVERVIEW_METRICS.deployments.trend}
+              {summaryState === 'success'
+                ? `${summary?.deployments.last_24h ?? 0} in last 24h`
+                : summaryValue}
             </span>
           </div>
           <div className="flex items-center justify-between font-body-sm text-body-sm text-on-surface-variant">
-            <span>Avg lead time:</span>
+            <span>Succeeded:</span>
             <span className="font-label-md text-label-md text-on-surface font-semibold">
-              {OVERVIEW_METRICS.deployments.avgLeadTime}
+              {summaryState === 'success' ? deploymentSucceeded : summaryValue}
             </span>
           </div>
           <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden mt-space-xs">
             <div
               className="bg-primary-container h-full rounded-full"
-              style={{ width: `${OVERVIEW_METRICS.deployments.passPercent}%` }}
+              style={{ width: `${deploymentSuccessPercent}%` }}
             ></div>
           </div>
         </div>
@@ -299,35 +351,35 @@ export const OverviewPage: React.FC = () => {
           <div className="flex items-start justify-between">
             <div className="flex flex-col">
               <span className="font-body-sm text-body-sm text-on-surface-variant uppercase tracking-wider font-semibold">
-                {OVERVIEW_METRICS.cpuUtilization.title}
+                CPU Utilization
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant">
-                {OVERVIEW_METRICS.cpuUtilization.subtitle}
+                Not available through the current API
               </span>
             </div>
             <span className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
-              Demo data
+              Unavailable
             </span>
           </div>
           <div className="flex items-baseline gap-space-sm my-space-md">
             <span className="font-metric-xl text-metric-xl text-on-surface">
-              {OVERVIEW_METRICS.cpuUtilization.value}
+              Not available
             </span>
             <span className="font-label-sm text-label-sm text-on-surface-variant">
-              {OVERVIEW_METRICS.cpuUtilization.trend}
+              No Prometheus connection configured in the frontend
             </span>
           </div>
           <div className="space-y-space-xs">
             <div className="flex justify-between items-center font-body-sm text-body-sm text-on-surface-variant">
               <span>Normal envelope</span>
               <span className="font-label-md text-label-md text-on-surface font-semibold">
-                {OVERVIEW_METRICS.cpuUtilization.breakdown}
+                Not available
               </span>
             </div>
             <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
               <div
                 className="bg-primary h-full rounded-full"
-                style={{ width: `${OVERVIEW_METRICS.cpuUtilization.percent}%` }}
+                style={{ width: '0%' }}
               ></div>
             </div>
           </div>
@@ -338,35 +390,35 @@ export const OverviewPage: React.FC = () => {
           <div className="flex items-start justify-between">
             <div className="flex flex-col">
               <span className="font-body-sm text-body-sm text-on-surface-variant uppercase tracking-wider font-semibold">
-                {OVERVIEW_METRICS.memoryAllocation.title}
+                Memory Allocation
               </span>
               <span className="font-label-sm text-label-sm text-on-surface-variant">
-                {OVERVIEW_METRICS.memoryAllocation.subtitle}
+                Not available through the current API
               </span>
             </div>
             <span className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm font-semibold">
-              Demo data
+              Unavailable
             </span>
           </div>
           <div className="flex items-baseline gap-space-sm my-space-md">
             <span className="font-metric-xl text-metric-xl text-on-surface">
-              {OVERVIEW_METRICS.memoryAllocation.value}
+              Not available
             </span>
             <span className="font-label-sm text-label-sm text-primary font-semibold">
-              {OVERVIEW_METRICS.memoryAllocation.trend}
+              No Prometheus connection configured in the frontend
             </span>
           </div>
           <div className="space-y-space-xs">
             <div className="flex justify-between items-center font-body-sm text-body-sm text-on-surface-variant">
-              <span>20.5 GB / 32 GB</span>
+              <span>Resource totals unavailable</span>
               <span className="font-label-md text-label-md text-on-surface font-semibold">
-                11.5 GB Free
+                —
               </span>
             </div>
             <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
               <div
                 className="bg-secondary-container h-full rounded-full"
-                style={{ width: `${OVERVIEW_METRICS.memoryAllocation.percent}%` }}
+                style={{ width: '0%' }}
               ></div>
             </div>
           </div>
@@ -386,97 +438,21 @@ export const OverviewPage: React.FC = () => {
                     Cluster Telemetry &amp; Throughput
                   </span>
                   <span className="px-space-xs py-space-xxs rounded bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm font-medium">
-                    Demo data
+                    Unavailable
                   </span>
                 </div>
                 <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Aggregated CPU core and memory consumption curve
+                  Prometheus cluster metrics are not available to this frontend.
                 </span>
               </div>
 
-              {/* Time Range Selector */}
-              <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
-                {(['1H', '6H', '24H', '7D'] as const).map(range => (
-                  <button
-                    key={range}
-                    onClick={() => setTimeRange(range)}
-                    className={`px-space-sm py-1 text-label-sm font-label-sm rounded transition-colors ${
-                      timeRange === range
-                        ? 'bg-surface-container-lowest shadow-sm text-on-surface font-semibold'
-                        : 'text-on-surface-variant hover:text-on-surface'
-                    }`}
-                  >
-                    {range}
-                  </button>
-                ))}
-              </div>
+              <span className="px-space-sm py-1 rounded bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+                No metrics connection
+              </span>
             </div>
 
-            {/* Legend and Metrics Quick Strip */}
-            <div className="flex items-center gap-space-xl py-space-xs text-body-sm font-body-sm flex-wrap">
-              <div className="flex items-center gap-space-xs">
-                <span className="h-3 w-3 rounded-sm bg-primary"></span>
-                <span className="text-on-surface">
-                  CPU (Average: {CLUSTER_TELEMETRY.cpuAverage} • Peak: {CLUSTER_TELEMETRY.cpuPeak})
-                </span>
-              </div>
-              <div className="flex items-center gap-space-xs">
-                <span className="h-3 w-3 rounded-sm bg-secondary-container"></span>
-                <span className="text-on-surface">
-                  Memory (Average: {CLUSTER_TELEMETRY.memAverage} • Peak: {CLUSTER_TELEMETRY.memPeak})
-                </span>
-              </div>
-            </div>
-
-            {/* Inline SVG Visualization */}
-            <div className="relative w-full h-64 mt-space-md pt-2">
-              <svg
-                className="w-full h-full overflow-visible"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 700 220"
-              >
-                {/* Grid Lines */}
-                <line className="text-surface-container-high" stroke="currentColor" strokeDasharray="4 4" x1="0" x2="700" y1="20" y2="20"></line>
-                <line className="text-surface-container-high" stroke="currentColor" strokeDasharray="4 4" x1="0" x2="700" y1="70" y2="70"></line>
-                <line className="text-surface-container-high" stroke="currentColor" strokeDasharray="4 4" x1="0" x2="700" y1="120" y2="120"></line>
-                <line className="text-surface-container-high" stroke="currentColor" strokeDasharray="4 4" x1="0" x2="700" y1="170" y2="170"></line>
-
-                {/* Axis Labels */}
-                <text className="fill-current text-outline font-label-sm" fontSize="10" x="5" y="24">80%</text>
-                <text className="fill-current text-outline font-label-sm" fontSize="10" x="5" y="74">60%</text>
-                <text className="fill-current text-outline font-label-sm" fontSize="10" x="5" y="124">40%</text>
-                <text className="fill-current text-outline font-label-sm" fontSize="10" x="5" y="174">20%</text>
-
-                <defs>
-                  <linearGradient id="memGrad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#645efb" stopOpacity="0.25"></stop>
-                    <stop offset="100%" stopColor="#645efb" stopOpacity="0.0"></stop>
-                  </linearGradient>
-                  <linearGradient id="cpuGrad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#004ac6" stopOpacity="0.30"></stop>
-                    <stop offset="100%" stopColor="#004ac6" stopOpacity="0.0"></stop>
-                  </linearGradient>
-                </defs>
-
-                {/* Memory Path */}
-                <path d="M 40 90 Q 120 70 200 85 T 360 60 T 520 75 T 690 65 L 690 200 L 40 200 Z" fill="url(#memGrad)"></path>
-                <path d="M 40 90 Q 120 70 200 85 T 360 60 T 520 75 T 690 65" fill="none" stroke="#645efb" strokeLinecap="round" strokeWidth="2.5"></path>
-
-                {/* CPU Path */}
-                <path d="M 40 140 Q 120 110 200 130 T 360 100 T 520 125 T 690 110 L 690 200 L 40 200 Z" fill="url(#cpuGrad)"></path>
-                <path d="M 40 140 Q 120 110 200 130 T 360 100 T 520 125 T 690 110" fill="none" stroke="#004ac6" strokeLinecap="round" strokeWidth="2.5"></path>
-
-                {/* Marker Points */}
-                <circle className="fill-surface-container-lowest stroke-primary" cx="360" cy="100" r="4" strokeWidth="2"></circle>
-                <circle className="fill-surface-container-lowest stroke-secondary" cx="360" cy="60" r="4" strokeWidth="2"></circle>
-              </svg>
-            </div>
-
-            <div className="flex justify-between items-center text-on-surface-variant font-label-sm text-label-sm mt-2 px-6 flex-wrap">
-              {CLUSTER_TELEMETRY.timeLabels.map((label, idx) => (
-                <span key={idx}>{label}</span>
-              ))}
+            <div role="status" className="mt-space-md flex h-64 items-center justify-center rounded-lg bg-surface-container-low text-center font-body-sm text-body-sm text-on-surface-variant">
+              No CPU or memory time series are available from the frontend API.
             </div>
           </div>
 
@@ -488,16 +464,21 @@ export const OverviewPage: React.FC = () => {
                   Node Cluster Capacity Breakdown
                 </span>
                 <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Regional worker hosts and hypervisor allocation (Demo data)
+                  Node inventory and resource metrics are unavailable through the backend.
                 </span>
               </div>
               <span className="font-label-sm text-label-sm text-on-surface-variant bg-surface-container px-space-xs py-space-xxs rounded">
-                3 Availability Zones
+                Unavailable
               </span>
             </div>
 
             <div className="space-y-space-md">
-              {NODE_CLUSTER_CAPACITY.map(node => (
+              {nodeCapacity.length === 0 && (
+                <p className="rounded-lg bg-surface-container-low p-space-md text-center font-body-sm text-body-sm text-on-surface-variant">
+                  No node capacity data is available.
+                </p>
+              )}
+              {nodeCapacity.map(node => (
                 <div
                   key={node.id}
                   className="p-space-md rounded-lg bg-surface-container-low flex flex-col md:flex-row md:items-center justify-between gap-space-sm"
@@ -599,10 +580,10 @@ export const OverviewPage: React.FC = () => {
                       ? JSON.stringify(health.data)
                       : health.error
                       ? health.error
-                      : '{ "status": "healthy" }'}
+                      : 'No response received'}
                   </span>
                   <span className="text-primary shrink-0 ml-2">
-                    {health.rttMs ? `${health.rttMs}ms` : '14ms'}
+                    {health.rttMs !== undefined ? `${health.rttMs}ms` : '-'}
                   </span>
                 </div>
               </div>
@@ -635,10 +616,10 @@ export const OverviewPage: React.FC = () => {
                       ? JSON.stringify(version.data)
                       : version.error
                       ? version.error
-                      : '{ "version": "1.2.0" }'}
+                      : 'No response received'}
                   </span>
                   <span className="text-primary shrink-0 ml-2">
-                    {version.rttMs ? `${version.rttMs}ms` : '19ms'}
+                    {version.rttMs !== undefined ? `${version.rttMs}ms` : '-'}
                   </span>
                 </div>
               </div>
@@ -671,10 +652,10 @@ export const OverviewPage: React.FC = () => {
                       ? JSON.stringify(root.data)
                       : root.error
                       ? root.error
-                      : '{ "name": "CloudOps API" }'}
+                      : 'No response received'}
                   </span>
                   <span className="text-primary shrink-0 ml-2">
-                    {root.rttMs ? `${root.rttMs}ms` : '22ms'}
+                    {root.rttMs !== undefined ? `${root.rttMs}ms` : '-'}
                   </span>
                 </div>
               </div>
@@ -684,43 +665,39 @@ export const OverviewPage: React.FC = () => {
             <div className="mt-space-lg p-space-md rounded-lg bg-surface-container-high space-y-space-sm">
               <div className="flex justify-between items-center font-body-sm text-body-sm">
                 <span className="text-on-surface-variant">SLA Availability (30d)</span>
-                <span className="font-headline-sm text-headline-sm text-on-surface font-bold">99.98%</span>
+                <span className="font-headline-sm text-headline-sm text-on-surface font-bold">Not available</span>
               </div>
+              <span className="px-space-xs py-space-xxs rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm">
+                Unavailable
+              </span>
               <div className="h-2 w-full bg-surface-container-lowest rounded-full overflow-hidden flex">
-                <div className="bg-primary h-full w-[99.98%]"></div>
+                <div className="bg-primary h-full w-0"></div>
               </div>
               <div className="flex justify-between items-center font-label-sm text-label-sm text-on-surface-variant pt-1">
                 <span>
                   Last checked:{' '}
                   <span className="text-on-surface font-semibold">
-                    {lastChecked ? lastChecked.toLocaleTimeString() : 'Just now'}
+                    {lastChecked ? lastChecked.toLocaleTimeString() : 'Unavailable'}
                   </span>
                 </span>
-                <span className="text-primary font-semibold">Zero incidents</span>
+                <span className="text-on-surface-variant font-semibold">Incident history unavailable</span>
               </div>
             </div>
 
             {/* Latency mini-histogram */}
             <div className="mt-space-md">
-              <span className="font-label-sm text-label-sm text-on-surface-variant block mb-2 font-medium">
-                Probe Latency History (Last 12 checks)
-              </span>
-              <div className="flex items-end gap-1.5 h-16 w-full px-1">
-                {[40, 55, 35, 45, 50, 70, 35, 40, 45, 38, 48, 42].map((height, i) => (
-                  <div
-                    key={i}
-                    className={`flex-1 rounded-t transition-colors ${
-                      i === 11 ? 'bg-primary' : 'bg-surface-container-highest hover:bg-primary'
-                    }`}
-                    style={{ height: `${height}%` }}
-                    title={`${Math.round(height * 0.4)}ms`}
-                  ></div>
-                ))}
+              <div className="flex items-center gap-space-xs mb-2">
+                <span className="font-label-sm text-label-sm text-on-surface-variant font-medium">
+                  Latest probe response
+                </span>
+              </div>
+              <div className="flex h-16 items-center justify-center rounded bg-surface-container-low text-body-sm text-body-sm text-on-surface-variant">
+                Probe history is not available.
               </div>
               <div className="flex justify-between font-label-sm text-label-sm text-on-surface-variant mt-1">
                 <span>-6m</span>
                 <span className="font-semibold text-primary">
-                  Current: {health.rttMs ? `${health.rttMs}ms` : '17ms'}
+                  Current: {health.rttMs !== undefined ? `${health.rttMs}ms` : 'Unavailable'}
                 </span>
               </div>
             </div>
@@ -754,12 +731,13 @@ export const OverviewPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={handleSimulateSpike}
-                className="p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors flex flex-col items-start gap-1 text-left cursor-pointer"
+                disabled
+                title="Synthetic load injection is not available through the backend."
+                className="p-space-sm rounded-lg bg-surface-container-low flex flex-col items-start gap-1 text-left cursor-not-allowed opacity-60"
               >
                 <span className="material-symbols-outlined text-[18px] text-secondary">trending_up</span>
-                <span className="font-body-sm text-body-sm font-medium text-on-surface">Simulate Spike</span>
-                <span className="font-label-sm text-label-sm text-on-surface-variant">Inject demo metric</span>
+                <span className="font-body-sm text-body-sm font-medium text-on-surface">Load testing unavailable</span>
+                <span className="font-label-sm text-label-sm text-on-surface-variant">No backend load-test action</span>
               </button>
 
               <button
@@ -784,13 +762,13 @@ export const OverviewPage: React.FC = () => {
               Operational Activity Feed
             </span>
             <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Recent orchestrations, automatic rollouts, and infrastructure telemetry events (Demo data)
+              Recent failed deployment records returned by the backend summary.
             </p>
           </div>
           <div className="flex items-center gap-space-xs">
             <span className="font-label-sm text-label-sm text-on-surface-variant">Feed status:</span>
             <span className="px-space-xs py-space-xxs rounded bg-surface-container text-primary font-label-sm text-label-sm font-semibold">
-              Streaming
+              {summaryBadge}
             </span>
           </div>
         </div>
@@ -808,30 +786,21 @@ export const OverviewPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="font-body-sm text-body-sm text-on-surface divide-y divide-surface-container-high/40">
+              {summaryState === 'loading' && (
+                <tr><td colSpan={6} className="py-space-md px-space-md text-center">Loading activity…</td></tr>
+              )}
+              {summaryState === 'success' && activityFeed.length === 0 && (
+                <tr><td colSpan={6} className="py-space-md px-space-md text-center text-on-surface-variant">No recent failed deployments were returned.</td></tr>
+              )}
+              {summaryState === 'error' && (
+                <tr><td colSpan={6} className="py-space-md px-space-md text-center text-on-surface-variant">Activity is unavailable while the summary API is offline.</td></tr>
+              )}
               {activityFeed.map(event => (
                 <tr key={event.id} className="hover:bg-surface-container-low/60 transition-colors">
                   <td className="py-space-md px-space-md">
-                    <span
-                      className={`inline-flex items-center gap-1 font-label-sm text-label-sm px-2 py-0.5 rounded font-medium ${
-                        event.type === 'Deployment'
-                          ? 'bg-surface-container text-primary'
-                          : event.type === 'Alert'
-                          ? 'bg-surface-container-high text-on-surface'
-                          : event.type === 'Simulation'
-                          ? 'bg-secondary-fixed text-on-secondary-fixed'
-                          : 'bg-surface-container text-secondary'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[14px]">
-                        {event.type === 'Deployment'
-                          ? 'rocket_launch'
-                          : event.type === 'Alert'
-                          ? 'warning'
-                          : event.type === 'Simulation'
-                          ? 'bolt'
-                          : 'tune'}
-                      </span>
-                      {event.type}
+                    <span className="inline-flex items-center gap-1 font-label-sm text-label-sm px-2 py-0.5 rounded font-medium bg-surface-container text-primary">
+                      <span className="material-symbols-outlined text-[14px]">rocket_launch</span>
+                      Deployment
                     </span>
                   </td>
                   <td className="py-space-md px-space-md font-medium">
