@@ -103,6 +103,58 @@ kubectl port-forward -n cloudops-platform svc/frontend 3000:3000
 Open http://localhost:3000. The backend allows this origin through `CORS_ORIGINS` in
 `k8s/configmap.yaml`.
 
+## Prometheus, Grafana, and alert rules
+
+The optional monitoring workloads are kept in `k8s/monitoring/` and installed
+with Kustomize. kube-state-metrics has read access only to the
+`cloudops-platform` namespace. Prometheus is configured to scrape the real
+backend `/metrics` endpoint and kube-state-metrics. Grafana provisions
+dashboards for API traffic, errors, latency, deployments, pod readiness/restarts,
+and PVC status when its pods are Ready.
+
+Compatibility note: the existing kube-state-metrics image is v2.20.0. Its
+[release notes](https://github.com/kubernetes/kube-state-metrics/releases/tag/v2.20.0)
+report `client-go` v0.36.3, and its
+[compatibility matrix](https://github.com/kubernetes/kube-state-metrics/blob/v2.20.0/README.md#compatibility-matrix)
+lists Kubernetes v1.36. The existing Kind node image is v1.37.0, so this is
+outside the documented compatibility row. That mismatch is a compatibility
+risk, but current evidence does not prove it caused the Kubernetes API timeout
+or earlier image-pull failures. Do not change the existing cluster or image
+without new runtime evidence and a compatible release.
+
+Create a random Grafana admin password as a Kubernetes Secret, then apply the
+monitoring resources:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\k8s\monitoring\New-GrafanaAdminSecret.ps1
+kubectl apply -k k8s/monitoring
+kubectl rollout status deployment/kube-state-metrics -n cloudops-platform --timeout=180s
+kubectl rollout status deployment/prometheus -n cloudops-platform --timeout=180s
+kubectl rollout status deployment/grafana -n cloudops-platform --timeout=180s
+```
+
+The script creates the Secret only when it is absent. It does not print or save
+the generated password, and no credential is committed to Git. Grafana uses a
+read-only anonymous Viewer for local dashboard access; its login form is
+disabled. Prometheus, Grafana, and kube-state-metrics are `ClusterIP` Services,
+not host ports or public services.
+
+Forward Prometheus and Grafana to localhost from separate terminals:
+
+```powershell
+kubectl port-forward -n cloudops-platform svc/prometheus 9090:9090
+kubectl port-forward -n cloudops-platform svc/grafana 3001:3000
+```
+
+Open http://localhost:9090 and http://localhost:3001. Prometheus retains 24
+hours of samples in an `emptyDir`; Grafana's SQLite data directory is also
+ephemeral, while its datasource and dashboard are provisioned from the
+repository. A pod replacement clears Prometheus samples and Grafana settings.
+
+The local stack does not deploy node-exporter or Alertmanager. It reports
+Kubernetes object state, not host CPU/memory usage, and Prometheus alert rules
+are visible in the Prometheus UI without notification delivery.
+
 ## Verified locally
 
 Checked on Windows 11 with Docker Desktop and kind v0.33.0 (Kubernetes v1.37.0):
