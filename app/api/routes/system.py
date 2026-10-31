@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST
 
+from app.services.alerts import AlertService, get_alert_service
 from app.schemas.system import (
     HealthResponse,
     ReadyResponse,
@@ -18,11 +20,33 @@ from app.schemas.system import (
     VersionResponse,
 )
 from app.services.readiness import ReadinessService, get_readiness_service
+from app.services.summary import SummaryService, get_summary_service
 from app.services.system import SystemService, get_system_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["system"])
+
+
+# Scrapes request metrics and refreshes operational gauges from database state.
+@router.get("/metrics", include_in_schema=False)
+def read_metrics(
+    request: Request,
+    summary_service: SummaryService = Depends(get_summary_service),
+    alert_service: AlertService = Depends(get_alert_service),
+) -> Response:
+    """Expose real request and current database metrics for Prometheus."""
+    logger.debug("read_metrics entry")
+    summary = summary_service.get_summary()
+    metrics = request.app.state.metrics
+    metrics.update_summary(summary)
+    metrics.update_alert_counts(alert_service.count_active_by_type())
+    response = Response(
+        content=metrics.render(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+    logger.debug("read_metrics exit")
+    return response
 
 
 # HTTP handler for GET / — delegates payload building to SystemService.
