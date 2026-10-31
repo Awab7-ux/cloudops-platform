@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Application, ApplicationPage } from '../api/types';
+import type { Application, ApplicationPage, SummaryResponse } from '../api/types';
 import { ApiError } from '../api/client';
 import {
   createApplication,
@@ -10,7 +11,10 @@ import {
   listApplications,
   updateApplication,
 } from '../api/applications';
+import { getSummary } from '../api/summary';
 import { ApplicationsPage } from './ApplicationsPage';
+
+vi.setConfig({ testTimeout: 15_000 });
 
 vi.mock('../api/applications', () => ({
   createApplication: vi.fn(),
@@ -19,6 +23,23 @@ vi.mock('../api/applications', () => ({
   listApplications: vi.fn(),
   updateApplication: vi.fn(),
 }));
+vi.mock('../api/summary', () => ({ getSummary: vi.fn() }));
+
+const summary: SummaryResponse = {
+  applications: {
+    total: 1,
+    by_status: { healthy: 1, degraded: 0, down: 0, unknown: 0 },
+    by_environment: { production: 1, staging: 0, development: 0 },
+  },
+  deployments: {
+    total: 0,
+    by_status: { pending: 0, running: 0, succeeded: 0, failed: 0, rolled_back: 0 },
+    last_24h: 0,
+  },
+  logs: { total: 0, errors_last_24h: 0 },
+  recent_failed_deployments: [],
+  generated_at: '2026-01-01T00:00:00Z',
+};
 
 // WHY: stable records make ordering, pagination, and form assertions readable.
 function application(id: number, overrides: Partial<Application> = {}): Application {
@@ -42,16 +63,26 @@ function page(items: Application[], total = items.length, limit = 10, offset = 0
 // WHY: each test starts from a predictable first page and clean mock history.
 function renderApplications(initialPage = page([application(1)])) {
   vi.mocked(listApplications).mockResolvedValue(initialPage);
-  return render(<ApplicationsPage />);
+  return render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 }
 
 describe('ApplicationsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(listApplications).mockResolvedValue(page([application(1)]));
+    vi.mocked(getSummary).mockResolvedValue(summary);
     vi.mocked(createApplication).mockResolvedValue(application(2));
     vi.mocked(updateApplication).mockResolvedValue(application(1));
     vi.mocked(deleteApplication).mockResolvedValue(undefined);
+  });
+
+  it('retains the original application design landmarks', async () => {
+    renderApplications();
+
+    expect(await screen.findByRole('heading', { name: 'Application Services' })).toBeInTheDocument();
+    expect(await screen.findByText('Production applications')).toBeInTheDocument();
+    expect(await screen.findByRole('columnheader', { name: /Application \/ Port/ })).toBeInTheDocument();
+    expect(await screen.findByRole('columnheader', { name: /Telemetry \(CPU\/RAM\)/ })).toBeInTheDocument();
   });
 
   // WHY: users need visible loading and error recovery while the API is unavailable.
@@ -61,7 +92,7 @@ describe('ApplicationsPage', () => {
     vi.mocked(listApplications).mockImplementationOnce(
       () => new Promise((_resolve, reject) => { rejectList = reject; }),
     );
-    render(<ApplicationsPage />);
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 
     expect(screen.getByText('Loading applications…')).toBeInTheDocument();
     rejectList?.(new ApiError('offline', 0, 'network'));
@@ -77,7 +108,7 @@ describe('ApplicationsPage', () => {
     const user = userEvent.setup();
     renderApplications(page([], 0));
 
-    expect(await screen.findByText('No applications yet')).toBeInTheDocument();
+    expect(await screen.findByText('No microservices found')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create application' }));
     expect(screen.getByRole('heading', { name: 'Create application' })).toBeInTheDocument();
   });
@@ -89,7 +120,7 @@ describe('ApplicationsPage', () => {
       .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 1)), 21))
       .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 11)), 21, 10, 10))
       .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 1)), 21, 25, 0));
-    render(<ApplicationsPage />);
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 
     expect(await screen.findByText('Showing 1–10 of 21')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Next page' }));
@@ -97,6 +128,59 @@ describe('ApplicationsPage', () => {
     expect(listApplications).toHaveBeenLastCalledWith({ limit: 10, offset: 10 });
     await user.selectOptions(screen.getByLabelText('Applications per page'), '25');
     await waitFor(() => expect(listApplications).toHaveBeenLastCalledWith({ limit: 25, offset: 0 }));
+  });
+
+  it('sends environment and status filters to the backend and uses the filtered total', async () => {
+    const user = userEvent.setup();
+    const productionApplication = application(30, { environment: 'production' });
+    const degradedApplication = application(31, { environment: 'production', status: 'degraded' });
+    vi.mocked(listApplications)
+      .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 1)), 21))
+      .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 11)), 21, 10, 10))
+      .mockResolvedValueOnce(page([productionApplication], 4, 10, 0))
+      .mockResolvedValueOnce(page([degradedApplication], 1, 10, 0));
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
+
+    await screen.findByRole('row', { name: /^Application 1\b/ });
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await screen.findByRole('row', { name: /^Application 11\b/ });
+
+    await user.selectOptions(screen.getAllByRole('combobox')[0], 'production');
+    expect(await screen.findByRole('row', { name: /^Application 30\b/ })).toBeInTheDocument();
+    expect(listApplications).toHaveBeenLastCalledWith({
+      limit: 10,
+      offset: 0,
+      environment: 'production',
+    });
+    expect(screen.getByText('4 Services')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getAllByRole('combobox')[1], 'degraded');
+    expect(await screen.findByRole('row', { name: /^Application 31\b/ })).toBeInTheDocument();
+    expect(listApplications).toHaveBeenLastCalledWith({
+      limit: 10,
+      offset: 0,
+      environment: 'production',
+      status: 'degraded',
+    });
+    expect(screen.getByText('1 Services')).toBeInTheDocument();
+  });
+
+  it('ignores an outdated list response after a filter change', async () => {
+    const user = userEvent.setup();
+    let resolveUnfiltered: ((value: ApplicationPage) => void) | undefined;
+    vi.mocked(listApplications)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveUnfiltered = resolve; }))
+      .mockResolvedValueOnce(page([application(30, { environment: 'production' })], 1));
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
+
+    await waitFor(() => expect(listApplications).toHaveBeenCalledTimes(1));
+    await user.selectOptions(screen.getAllByRole('combobox')[0], 'production');
+    expect(await screen.findByRole('row', { name: /^Application 30\b/ })).toBeInTheDocument();
+    resolveUnfiltered?.(page([application(1)], 20));
+
+    expect(await screen.findByText('1 Services')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /^Application 30\b/ })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /^Application 1\b/ })).not.toBeInTheDocument();
   });
 
   // WHY: deleting the only record on a later page should never strand the user there.
@@ -108,7 +192,7 @@ describe('ApplicationsPage', () => {
       .mockResolvedValueOnce(page([application(21)], 21, 10, 20))
       .mockResolvedValueOnce(page([], 20, 10, 20))
       .mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) => application(i + 11)), 20, 10, 10));
-    render(<ApplicationsPage />);
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 
     await screen.findByRole('row', { name: /^Application 1\b/ });
     await user.click(screen.getByRole('button', { name: 'Next page' }));
@@ -285,6 +369,7 @@ describe('application create and delete outcomes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(listApplications).mockResolvedValue(page([application(1)]));
+    vi.mocked(getSummary).mockResolvedValue(summary);
     vi.mocked(createApplication).mockResolvedValue(application(2));
     vi.mocked(updateApplication).mockResolvedValue(application(1));
     vi.mocked(deleteApplication).mockResolvedValue(undefined);
@@ -303,7 +388,7 @@ describe('application create and delete outcomes', () => {
       .mockResolvedValueOnce(page([], 0))
       .mockResolvedValueOnce(page([createdApplication]));
     vi.mocked(createApplication).mockResolvedValue(createdApplication);
-    render(<ApplicationsPage />);
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 
     await user.click(await screen.findByRole('button', { name: 'Add application' }));
     await user.type(screen.getByLabelText('Name'), CREATED_NAME);
@@ -347,7 +432,7 @@ describe('application create and delete outcomes', () => {
     vi.mocked(listApplications)
       .mockResolvedValueOnce(page([TARGET_APPLICATION]))
       .mockResolvedValueOnce(page([], 0));
-    render(<ApplicationsPage />);
+    render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);
 
     await screen.findByRole('row', { name: /^Lifecycle target\b/ });
     await user.click(screen.getByRole('button', { name: 'Delete Lifecycle target' }));
