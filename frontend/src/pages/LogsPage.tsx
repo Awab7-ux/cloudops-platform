@@ -1,72 +1,180 @@
-import React, { useState, useEffect } from 'react';
-import { logStreamEvents, logHistogramData, logFilterOptions, LogEvent } from '../data/logsData';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { listApplications } from '../api/applications';
+import { listLogs } from '../api/logs';
+import type { Application, LogLevel, LogRecord } from '../api/types';
+
+const LOG_PAGE_SIZE = 50;
+
+function apiLevel(level: string): LogLevel | undefined {
+  if (level === 'ALL') return undefined;
+  return level === 'WARN' ? 'warning' : level.toLowerCase() as LogLevel;
+}
+
+function displayLevel(level: LogLevel): 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' {
+  if (level === 'warning') return 'WARN';
+  return level.toUpperCase() as 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
+}
 
 export const LogsPage: React.FC = () => {
-  const [logs, setLogs] = useState<LogEvent[]>(logStreamEvents);
+  const [logs, setLogs] = useState<LogRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(true);
+  const [applicationsError, setApplicationsError] = useState('');
+  const [applicationsRefresh, setApplicationsRefresh] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [refresh, setRefresh] = useState(0);
   const [isLive, setIsLive] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedLevel, setSelectedLevel] = useState<string>('ALL');
-  const [selectedService, setSelectedService] = useState<string>('ALL');
+  const [selectedService, setSelectedService] = useState<string>(
+    () => new URLSearchParams(window.location.search).get('application') ?? 'ALL',
+  );
+  const [selectedDeployment] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('deployment'),
+  );
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [wrapLines, setWrapLines] = useState<boolean>(true);
+  const logViewportRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
+  const loadSequence = useRef(0);
+  const autoScrollRef = useRef(autoScroll);
+  const atLatestRef = useRef(true);
+  const latestLogIdRef = useRef<string | null>(null);
 
-  // Simulated live log tail generator
+  const requestOptions = useMemo(() => {
+    const level = apiLevel(selectedLevel);
+    return {
+      limit: LOG_PAGE_SIZE,
+      offset: 0,
+      ...(level ? { level } : {}),
+      ...(selectedService === 'ALL' ? {} : { application_id: selectedService }),
+      ...(selectedDeployment ? { deployment_id: selectedDeployment } : {}),
+    };
+  }, [selectedDeployment, selectedLevel, selectedService]);
+  const requestOptionsKey = JSON.stringify(requestOptions);
+  const previousRequestOptionsKey = useRef(requestOptionsKey);
+
   useEffect(() => {
-    if (!isLive) return;
+    let active = true;
+    setApplicationsLoading(true);
+    setApplicationsError('');
+    void listApplications({ limit: 200, offset: 0 })
+      .then(result => {
+        if (active) setApplications(result.items);
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setApplications([]);
+        setApplicationsError(caught instanceof Error ? caught.message : 'Unable to load applications.');
+      })
+      .finally(() => {
+        if (active) setApplicationsLoading(false);
+      });
+    return () => { active = false; };
+  }, [applicationsRefresh]);
 
-    const interval = setInterval(() => {
-      const sampleMessages = [
-        {
-          level: 'INFO' as const,
-          service: 'auth-service',
-          message: 'OAuth2 token refreshed successfully for client session',
-          attributes: { statusCode: 200, durationMs: 14 },
-        },
-        {
-          level: 'DEBUG' as const,
-          service: 'api-gateway',
-          message: 'Forwarding request to internal cluster upstream proxy',
-          attributes: { clientIp: '198.51.100.44', protocol: 'HTTP/2' },
-        },
-        {
-          level: 'INFO' as const,
-          service: 'payment-gateway',
-          message: 'Stripe webhook received event charge.succeeded',
-          attributes: { webhookId: 'evt_sim_9918', durationMs: 88 },
-        },
-      ];
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
 
-      const chosen = sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
-      const now = new Date();
-      const timeStr = `${now.toTimeString().split(' ')[0]}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  // The backend returns newest logs first, so the latest entry is at the top of this viewport.
+  useLayoutEffect(() => {
+    const viewport = logViewportRef.current;
+    if (!viewport) return;
+    if (previousRequestOptionsKey.current !== requestOptionsKey) {
+      previousRequestOptionsKey.current = requestOptionsKey;
+      latestLogIdRef.current = null;
+      loadSequence.current += 1;
+      return;
+    }
+    if (loading) return;
 
-      const newLog: LogEvent = {
-        id: `log-live-${Date.now()}`,
-        timestamp: timeStr,
-        level: chosen.level,
-        service: chosen.service,
-        message: chosen.message,
-        traceId: `tr-${Math.random().toString(36).substring(2, 10)}`,
-        spanId: `sp-${Math.random().toString(36).substring(2, 6)}`,
-        attributes: chosen.attributes,
-      };
+    const latestLogId = logs[0]?.id ?? null;
+    const previousLatestLogId = latestLogIdRef.current;
+    if (
+      previousLatestLogId !== null
+      && latestLogId !== null
+      && previousLatestLogId !== latestLogId
+      && autoScrollRef.current
+      && atLatestRef.current
+    ) {
+      viewport.scrollTop = 0;
+    }
+    latestLogIdRef.current = latestLogId;
+  }, [logs, loading, requestOptionsKey]);
 
-      setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
-    }, 4000);
+  const loadLogs = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await listLogs(requestOptions);
+      if (sequence !== loadSequence.current) return;
+      setLogs(result.items);
+      setTotal(result.total);
+    } catch (caught: unknown) {
+      if (sequence !== loadSequence.current) return;
+      setLogs([]);
+      setTotal(0);
+      setError(caught instanceof Error ? caught.message : 'Unable to load logs.');
+    } finally {
+      if (sequence === loadSequence.current) setLoading(false);
+    }
+  }, [requestOptions]);
 
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs, refresh]);
+
+  useEffect(() => {
+    if (!isLive) return undefined;
+    const interval = setInterval(() => setRefresh(value => value + 1), 15_000);
     return () => clearInterval(interval);
   }, [isLive]);
 
+  const loadMoreLogs = async () => {
+    if (loading || loadingMoreRef.current || logs.length >= total) return;
+    const sequence = loadSequence.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const result = await listLogs({ ...requestOptions, offset: logs.length });
+      if (sequence !== loadSequence.current) return;
+      setLogs(current => [...current, ...result.items]);
+      setTotal(result.total);
+    } catch (caught: unknown) {
+      if (sequence !== loadSequence.current) return;
+      setError(caught instanceof Error ? caught.message : 'Unable to load more logs.');
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  };
+
   const filteredLogs = logs.filter((log) => {
-    const matchesLevel = selectedLevel === 'ALL' || log.level === selectedLevel;
-    const matchesService = selectedService === 'ALL' || log.service === selectedService;
-    const matchesSearch =
-      log.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.service.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (log.traceId && log.traceId.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesLevel && matchesService && matchesSearch;
+    const application = applications.find(item => item.id === log.application_id);
+    const query = searchQuery.trim().toLowerCase();
+    return [log.message, log.source, application?.name, log.application_id, log.deployment_id]
+      .some(value => value?.toLowerCase().includes(query) ?? false);
   });
+
+  const logLevelCounts = useMemo(() => ({
+    error: logs.filter(log => log.level === 'error').length,
+    warning: logs.filter(log => log.level === 'warning').length,
+    info: logs.filter(log => log.level === 'info').length,
+    debug: logs.filter(log => log.level === 'debug').length,
+  }), [logs]);
+  const maxLevelCount = Math.max(
+    1,
+    logLevelCounts.error,
+    logLevelCounts.warning,
+    logLevelCounts.info,
+    logLevelCounts.debug,
+  );
 
   const handleExportJson = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(filteredLogs, null, 2));
@@ -76,7 +184,16 @@ export const LogsPage: React.FC = () => {
     dlAnchorElem.click();
   };
 
-  const maxHistogram = Math.max(...logHistogramData.map((d) => d.total));
+  const handleLogScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    atLatestRef.current = element.scrollTop <= 24;
+    if (element.scrollHeight - element.scrollTop - element.clientHeight < 24) {
+      void loadMoreLogs();
+    }
+  };
+
+  const pageError = error || applicationsError;
+  const pageLoading = loading || applicationsLoading;
 
   return (
     <div className="space-y-6">
@@ -85,17 +202,17 @@ export const LogsPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Structured Log Stream</h1>
-            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-              Demo data
+            <span title={pageError || undefined} className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+              {pageError ? 'Unavailable' : pageLoading ? 'Loading…' : 'Live API'}
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Centralized FluentBit &amp; OpenTelemetry event pipeline across production Kubernetes namespaces.
+            Application and deployment log records returned by the CloudOps API.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Pause / Resume Live tail */}
+          {/* Pause / Resume API polling */}
           <button
             onClick={() => setIsLive(!isLive)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors shadow-xs ${
@@ -107,7 +224,7 @@ export const LogsPage: React.FC = () => {
             <span
               className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}
             ></span>
-            {isLive ? 'Live Streaming' : 'Stream Paused'}
+            {isLive ? 'Auto Refresh On' : 'Auto Refresh Paused'}
           </button>
 
           <button
@@ -120,14 +237,13 @@ export const LogsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Log Frequency Rate Histogram */}
+      {/* Distribution of returned log records */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Event Ingestion Rate (Lines/sec)
+              Log levels in the loaded page
             </span>
-            <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">Demo data</span>
           </div>
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1 text-rose-600 font-medium">
@@ -142,38 +258,25 @@ export const LogsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Stacked Bars */}
-        <div className="flex items-end gap-2 h-20 pt-2 border-b border-slate-100">
-          {logHistogramData.map((d) => {
-            const heightPercent = (d.total / maxHistogram) * 100;
-            const errorHeight = (d.errors / d.total) * 100;
-            const warnHeight = (d.warnings / d.total) * 100;
-            const infoHeight = 100 - errorHeight - warnHeight;
-
-            return (
-              <div key={d.time} className="flex-1 flex flex-col justify-end items-center group relative h-full">
-                <div
-                  className="w-full rounded-t flex flex-col overflow-hidden transition-all duration-200 hover:opacity-80"
-                  style={{ height: `${heightPercent}%` }}
-                >
-                  <div style={{ height: `${errorHeight}%` }} className="bg-rose-500 w-full" />
-                  <div style={{ height: `${warnHeight}%` }} className="bg-amber-400 w-full" />
-                  <div style={{ height: `${infoHeight}%` }} className="bg-indigo-500 w-full" />
-                </div>
-
-                {/* Tooltip on hover */}
-                <div className="absolute -top-9 bg-slate-900 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
-                  {d.time}: {d.total} logs ({d.errors} err)
-                </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+          {([
+            ['ERROR', logLevelCounts.error, 'bg-rose-500'],
+            ['WARN', logLevelCounts.warning, 'bg-amber-400'],
+            ['INFO', logLevelCounts.info, 'bg-indigo-500'],
+            ['DEBUG', logLevelCounts.debug, 'bg-slate-500'],
+          ] as const).map(([level, count, color]) => (
+            <div key={level} className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span>{level}</span>
+                <span>{count}</span>
               </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1.5">
-          {logHistogramData.map((d) => (
-            <span key={d.time}>{d.time}</span>
+              <div className="h-2 rounded bg-slate-100 overflow-hidden">
+                <div className={`h-full ${color}`} style={{ width: `${(count / maxLevelCount) * 100}%` }} />
+              </div>
+            </div>
           ))}
         </div>
+        <p className="mt-3 text-[10px] text-slate-400">Counts cover the records currently loaded from the backend, not the full log history.</p>
       </div>
 
       {/* Filter and Control Bar */}
@@ -186,7 +289,7 @@ export const LogsPage: React.FC = () => {
             </span>
             <input
               type="text"
-              placeholder='Search logs by message, service, traceId (e.g. "timeout", "payment-service")...'
+              placeholder='Search logs by message, application, or source (e.g. "timeout", "payments")...'
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
@@ -198,13 +301,13 @@ export const LogsPage: React.FC = () => {
             <select
               value={selectedService}
               onChange={(e) => setSelectedService(e.target.value)}
-              aria-label="Filter logs by microservice"
+              aria-label="Filter logs by application"
               className="w-full md:w-48 px-3 py-2 text-xs font-mono font-medium rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
-              <option value="ALL">All Microservices</option>
-              {logFilterOptions.services.map((svc) => (
-                <option key={svc} value={svc}>
-                  {svc}
+              <option value="ALL">All Applications</option>
+              {applications.map((application) => (
+                <option key={application.id} value={application.id}>
+                  {application.name}
                 </option>
               ))}
             </select>
@@ -250,13 +353,16 @@ export const LogsPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={autoScroll}
-                onChange={(e) => setAutoScroll(e.target.checked)}
+                onChange={(e) => {
+                  autoScrollRef.current = e.target.checked;
+                  setAutoScroll(e.target.checked);
+                }}
                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
               <span>Auto Tail</span>
             </label>
             <span className="font-mono text-slate-400">
-              Showing {filteredLogs.length} events
+              Showing {filteredLogs.length} of {total} events
             </span>
           </div>
         </div>
@@ -270,21 +376,41 @@ export const LogsPage: React.FC = () => {
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-            <span className="ml-2 font-semibold text-slate-300">stdout &bull; k8s-pod-collector</span>
+            <span className="ml-2 font-semibold text-slate-300">Backend log records</span>
           </div>
-          <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded">Demo data</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded">{pageError ? 'Unavailable' : pageLoading ? 'Loading…' : 'Live API'}</span>
+          </div>
         </div>
 
         {/* Log Entries */}
-        <div className="max-h-[600px] overflow-y-auto divide-y divide-slate-900/60 p-2">
-          {filteredLogs.length === 0 ? (
-            <div className="py-12 text-center text-slate-500">
-              No log entries match filter criteria.
+        <div ref={logViewportRef} className="max-h-[600px] overflow-y-auto divide-y divide-slate-900/60 p-2" onScroll={handleLogScroll}>
+          {loading && (
+            <div role="status" className="py-12 text-center text-slate-400">Loading logs…</div>
+          )}
+          {pageError && (
+            <div role="alert" className="py-12 text-center text-rose-300">
+              <p>{pageError}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (error) setRefresh(value => value + 1);
+                  if (applicationsError) setApplicationsRefresh(value => value + 1);
+                }}
+                className="mt-3 underline"
+              >Retry</button>
             </div>
-          ) : (
-            filteredLogs.map((log) => {
+          )}
+          {!loading && !error && filteredLogs.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">
+              {total === 0 ? 'No log entries are available.' : 'No log entries match filter criteria.'}
+            </div>
+          ) : !loading && !error ? (
+            filteredLogs.map(log => {
+              const level = displayLevel(log.level);
+              const application = applications.find(item => item.id === log.application_id);
+              const service = log.source ?? application?.name ?? log.application_id;
               const isExpanded = expandedLogId === log.id;
-
               return (
                 <div
                   key={log.id}
@@ -295,33 +421,33 @@ export const LogsPage: React.FC = () => {
                 >
                   <div className="flex items-start gap-2.5">
                     {/* Timestamp */}
-                    <span className="text-slate-500 shrink-0 select-none text-[11px]">{log.timestamp}</span>
+                    <span className="text-slate-500 shrink-0 select-none text-[11px]">{new Date(log.created_at).toLocaleString()}</span>
 
                     {/* Level Badge */}
                     <span
                       className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase shrink-0 ${
-                        log.level === 'ERROR'
+                        level === 'ERROR'
                           ? 'bg-rose-950 text-rose-400 border border-rose-800'
-                          : log.level === 'WARN'
+                          : level === 'WARN'
                           ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                          : log.level === 'INFO'
+                          : level === 'INFO'
                           ? 'bg-indigo-950 text-indigo-400 border border-indigo-800'
                           : 'bg-slate-800 text-slate-400'
                       }`}
                     >
-                      {log.level}
+                      {level}
                     </span>
 
                     {/* Service */}
                     <span className="text-indigo-400 font-semibold shrink-0 select-none">
-                      [{log.service}]
+                      [{service}]
                     </span>
 
                     {/* Message */}
                     <span
                       className={`flex-1 text-slate-300 ${
                         wrapLines ? 'break-words' : 'truncate'
-                      } ${log.level === 'ERROR' ? 'text-rose-200' : ''}`}
+                      } ${level === 'ERROR' ? 'text-rose-200' : ''}`}
                     >
                       {log.message}
                     </span>
@@ -336,43 +462,27 @@ export const LogsPage: React.FC = () => {
                   {isExpanded && (
                     <div className="mt-2.5 pt-2.5 border-t border-slate-800 pl-4 space-y-2 text-[11px] text-slate-400">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {log.traceId && (
-                          <div>
-                            <span className="text-slate-500">Trace ID:</span>{' '}
-                            <span className="text-indigo-300 font-mono select-all">{log.traceId}</span>
-                          </div>
-                        )}
-                        {log.spanId && (
-                          <div>
-                            <span className="text-slate-500">Span ID:</span>{' '}
-                            <span className="text-indigo-300 font-mono select-all">{log.spanId}</span>
-                          </div>
-                        )}
+                        <div>
+                          <span className="text-slate-500">Application ID:</span>{' '}
+                          <span className="text-indigo-300 font-mono select-all">{log.application_id}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Deployment ID:</span>{' '}
+                          <span className="text-indigo-300 font-mono select-all">{log.deployment_id ?? '-'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Source:</span>{' '}
+                          <span className="text-indigo-300 font-mono select-all">{log.source ?? '-'}</span>
+                        </div>
                       </div>
-
-                      {log.attributes && (
-                        <div>
-                          <span className="text-slate-500 block mb-1">Context Attributes:</span>
-                          <pre className="bg-slate-950 p-2 rounded border border-slate-800/80 text-[10px] text-emerald-400 overflow-x-auto">
-                            {JSON.stringify(log.attributes, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-
-                      {log.stackTrace && (
-                        <div>
-                          <span className="text-rose-400 font-semibold block mb-1">Stack Trace:</span>
-                          <pre className="bg-rose-950/40 p-2 rounded border border-rose-900/50 text-[10px] text-rose-300 overflow-x-auto whitespace-pre-wrap">
-                            {log.stackTrace}
-                          </pre>
-                        </div>
-                      )}
+                      <p>Trace IDs, attributes, stack traces, and container output are not provided by the logs API.</p>
                     </div>
                   )}
                 </div>
               );
             })
-          )}
+          ) : null}
+          {loadingMore && <div role="status" className="py-3 text-center text-slate-400">Loading more logs…</div>}
         </div>
       </div>
     </div>
