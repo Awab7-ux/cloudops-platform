@@ -1,4 +1,32 @@
 export const REQUEST_TIMEOUT_MS = 10_000;
+export const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL_ENV_VAR = 'VITE_API_BASE_URL';
+
+let configuredApiBaseUrl: string | null = null;
+
+// WHY: every frontend request and probe resolves the active Settings URL the same way.
+export function resolveApiBaseUrl(
+  customUrl?: string | null,
+  options: { ignoreConfiguredUrl?: boolean } = {},
+): string {
+  const environmentUrl = (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.trim();
+  const configuredUrl = options.ignoreConfiguredUrl ? null : configuredApiBaseUrl;
+  const selectedUrl = customUrl?.trim() || configuredUrl || environmentUrl || DEFAULT_API_BASE_URL;
+  return selectedUrl.trim().replace(/\/+$/, '');
+}
+
+// WHY: Settings updates the shared resolver before any new API request can start.
+export function setConfiguredApiBaseUrl(url: string): string {
+  const resolvedUrl = resolveApiBaseUrl(url, { ignoreConfiguredUrl: true });
+  configuredApiBaseUrl = resolvedUrl;
+  return resolvedUrl;
+}
+
+// WHY: reset restores the environment/default target and clears the runtime override.
+export function resetConfiguredApiBaseUrl(): string {
+  configuredApiBaseUrl = null;
+  return resolveApiBaseUrl();
+}
 
 export type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse';
 
@@ -44,17 +72,9 @@ function validationFieldErrors(body: ErrorBody): Record<string, string> {
 export async function request<T>(
   path: string,
   init: RequestInit = {},
+  isValidResponse?: (body: unknown) => body is T,
 ): Promise<T> {
-  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL;
-  if (!configuredBaseUrl?.trim()) {
-    throw new ApiError(
-      'API base URL is not configured. Set VITE_API_BASE_URL.',
-      0,
-      'network',
-    );
-  }
-
-  const baseUrl = configuredBaseUrl.trim().replace(/\/+$/, '');
+  const baseUrl = resolveApiBaseUrl();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const headers = new Headers(init.headers);
@@ -93,6 +113,14 @@ export async function request<T>(
           ? { name: detail }
           : {};
       throw new ApiError(detail, response.status, 'http', fieldErrors);
+    }
+
+    if (isValidResponse && !isValidResponse(body)) {
+      throw new ApiError(
+        'The server returned data in an unexpected format.',
+        response.status,
+        'parse',
+      );
     }
 
     return body as T;
