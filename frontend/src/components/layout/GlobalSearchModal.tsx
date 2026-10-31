@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SERVICES_LIST } from '../../data/servicesData.ts';
-import { DEPLOYMENTS_LIST } from '../../data/deploymentsData.ts';
-import { INFRA_NODES } from '../../data/infrastructureData.ts';
-import { ACTIVE_INCIDENTS } from '../../data/alertsData.ts';
+import { listApplications } from '../../api/applications';
+import { listAlerts } from '../../api/alerts';
+import { getSummary } from '../../api/summary';
+import type { AlertRecord, Application, RecentFailedDeployment } from '../../api/types';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -12,6 +12,10 @@ interface GlobalSearchModalProps {
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, onClose }) => {
   const [query, setQuery] = useState('');
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [recentFailedDeployments, setRecentFailedDeployments] = useState<RecentFailedDeployment[]>([]);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -32,24 +36,44 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let active = true;
+    setLoading(true);
+    void Promise.all([
+      listApplications({ limit: 200, offset: 0 }).catch(() => null),
+      listAlerts({ limit: 200, offset: 0 }).catch(() => null),
+      getSummary().catch(() => null),
+    ]).then(([applicationPage, alertPage, summary]) => {
+      if (!active) return;
+      setApplications(applicationPage?.items ?? []);
+      setAlerts(alertPage?.items ?? []);
+      setRecentFailedDeployments(summary?.recent_failed_deployments ?? []);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const q = query.toLowerCase().trim();
 
-  const filteredServices = SERVICES_LIST.filter(
-    s => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q) || s.port.includes(q)
+  const filteredApplications = applications.filter(
+    application => application.name.toLowerCase().includes(q)
+      || (application.description?.toLowerCase().includes(q) ?? false)
   );
 
-  const filteredDeployments = DEPLOYMENTS_LIST.filter(
-    d => d.id.toLowerCase().includes(q) || d.app.toLowerCase().includes(q) || d.commitSha.toLowerCase().includes(q)
+  const filteredDeployments = recentFailedDeployments.filter(
+    deployment => deployment.id.toLowerCase().includes(q)
+      || deployment.application_name.toLowerCase().includes(q)
+      || (deployment.commit_sha?.toLowerCase().includes(q) ?? false)
   );
 
-  const filteredNodes = INFRA_NODES.filter(
-    n => n.name.toLowerCase().includes(q) || n.zone.toLowerCase().includes(q) || n.ip.includes(q)
-  );
-
-  const filteredAlerts = ACTIVE_INCIDENTS.filter(
-    a => a.id.toLowerCase().includes(q) || a.title.toLowerCase().includes(q)
+  const filteredAlerts = alerts.filter(
+    alert => alert.id.toLowerCase().includes(q)
+      || alert.message.toLowerCase().includes(q)
+      || alert.application_name.toLowerCase().includes(q)
   );
 
   const handleSelect = (path: string) => {
@@ -73,7 +97,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
             autoFocus
             type="text"
             className="w-full bg-transparent text-on-surface placeholder:text-on-surface-variant font-body-md text-body-md focus:outline-none"
-            placeholder="Search microservices, deployments, pods, nodes, or alerts..."
+            placeholder="Search applications, recent failed deployments, or alerts..."
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
@@ -84,25 +108,26 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
 
         {/* Results Body */}
         <div className="max-h-96 overflow-y-auto p-space-sm divide-y divide-surface-container-high/40">
-          {/* Microservices */}
-          {filteredServices.length > 0 && (
+          {loading && <p role="status" className="p-space-md text-center text-on-surface-variant">Loading backend records…</p>}
+
+          {/* Applications */}
+          {filteredApplications.length > 0 && (
             <div className="py-space-xs">
               <span className="font-label-sm text-label-sm text-on-surface-variant uppercase px-2 mb-1 block">
-                Microservices ({filteredServices.length})
+                Applications ({filteredApplications.length})
               </span>
-              {filteredServices.slice(0, 4).map(srv => (
+              {filteredApplications.slice(0, 4).map(application => (
                 <button
-                  key={srv.id}
-                  onClick={() => handleSelect(`/applications/${srv.id}`)}
+                  key={application.id}
+                  onClick={() => handleSelect(`/applications/${application.id}`)}
                   className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-surface-container-low text-left transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-primary">hub</span>
-                    <span className="font-headline-sm text-body-md text-on-surface">{srv.name}</span>
-                    <span className="font-code-inline text-code-inline text-on-surface-variant">:{srv.port}</span>
+                    <span className="font-headline-sm text-body-md text-on-surface">{application.name}</span>
                   </div>
                   <span className="font-label-sm text-label-sm px-1.5 py-0.5 rounded bg-surface-container text-on-surface">
-                    {srv.environment}
+                    {application.environment}
                   </span>
                 </button>
               ))}
@@ -124,32 +149,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-secondary">rocket_launch</span>
                     <span className="font-code-inline text-primary font-medium">{dep.id}</span>
-                    <span className="font-body-sm text-on-surface">{dep.app}</span>
+                    <span className="font-body-sm text-on-surface">{dep.application_name}</span>
                   </div>
-                  <span className="font-label-sm text-label-sm text-on-surface-variant">{dep.status}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Infrastructure Nodes */}
-          {filteredNodes.length > 0 && (
-            <div className="py-space-xs">
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase px-2 mb-1 block">
-                Cluster Nodes ({filteredNodes.length})
-              </span>
-              {filteredNodes.slice(0, 3).map(node => (
-                <button
-                  key={node.name}
-                  onClick={() => handleSelect('/infrastructure')}
-                  className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-surface-container-low text-left transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-primary">dns</span>
-                    <span className="font-code-inline text-on-surface font-medium">{node.name}</span>
-                    <span className="font-label-sm text-label-sm text-on-surface-variant">({node.zone})</span>
-                  </div>
-                  <span className="font-label-sm text-label-sm text-primary font-semibold">{node.status}</span>
+                  <span className="font-label-sm text-label-sm text-on-surface-variant">Failed</span>
                 </button>
               ))}
             </div>
@@ -170,7 +172,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-[18px] text-error">crisis_alert</span>
                     <span className="font-code-inline text-error font-medium">{alert.id}</span>
-                    <span className="font-body-sm text-on-surface truncate max-w-sm">{alert.title}</span>
+                    <span className="font-body-sm text-on-surface truncate max-w-sm">{alert.message}</span>
                   </div>
                   <span className="font-label-sm text-label-sm px-1.5 py-0.5 rounded bg-error-container text-on-error-container font-bold">
                     {alert.severity}
@@ -180,12 +182,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
             </div>
           )}
 
-          {filteredServices.length === 0 &&
+          {!loading && filteredApplications.length === 0 &&
             filteredDeployments.length === 0 &&
-            filteredNodes.length === 0 &&
             filteredAlerts.length === 0 && (
               <div className="p-space-xl text-center text-on-surface-variant font-body-sm">
-                No matching microservices, pods, or deployments found for &ldquo;{query}&rdquo;.
+                No matching backend applications, recent failed deployments, or alerts for &ldquo;{query}&rdquo;.
               </div>
             )}
         </div>
