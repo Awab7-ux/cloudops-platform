@@ -8,8 +8,8 @@ database volume. No paid cloud provider is required.
 
 ## Backend architecture
 
-The service uses SQLite for application, deployment, and log data and has no
-external service dependencies. Its request flow is organized into these layers:
+The service uses SQLite for application, deployment, log, and user data and has
+no external service dependencies. Its request flow is organized into these layers:
 
 ```text
 Middleware
@@ -20,8 +20,10 @@ Middleware
 Routers (app/api/routes)
         ↓
 Services (app/services)
+        ↓                 ↓
+Repositories        Schemas
         ↓
-Schemas (app/schemas)
+Models (app/models)
 
 Core (app/core): configuration, logging, and errors
 ```
@@ -41,11 +43,49 @@ are isolated in `requirements-dev.txt`.
 | `DATABASE_URL` | `sqlite:///./cloudops.db` | SQLAlchemy database URL; Compose and Kind use `sqlite:////data/cloudops.db` |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated allowed origins |
 | `LOG_LEVEL` | `INFO` | Python logging level |
+| `JWT_SECRET` | Required | HS256 signing key, at least 32 characters; never commit it |
+| `JWT_ALGORITHM` | `HS256` | JWT signing algorithm; only HS256 is accepted |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Positive access-token lifetime in minutes |
+| `ADMIN_USERNAME` | Unset | Optional initial administrator username; only used if no users exist |
+| `ADMIN_PASSWORD` | Unset | Optional initial administrator password; only used if no users exist |
 
 If `CORS_ORIGINS` contains `*`, it is rejected, a warning is logged, and the
 default origins are used. An invalid `LOG_LEVEL` falls back to `INFO`.
 Cross-origin requests allow `GET`, `POST`, `PATCH`, and `DELETE` with the
-`Content-Type` request header; credentials are disabled.
+`Content-Type` and `Authorization` request headers; credentials are disabled.
+
+### Authentication
+
+The API uses bcrypt-hashed passwords and signed HS256 JWTs. Tokens include the
+user ID (`sub`), current role, and expiration; the default lifetime is 30
+minutes. Set a random `JWT_SECRET` with at least 32 characters before starting
+the backend. Copy `.env.example` to `.env` for Compose and populate the secret;
+the example intentionally contains no secret value. For local Uvicorn, set
+`JWT_SECRET` in the process environment.
+
+If both `ADMIN_USERNAME` and `ADMIN_PASSWORD` are configured at startup, the
+backend creates that administrator only when the users table is empty. The
+password is hashed before persistence and is never logged. For Kubernetes,
+create the referenced Secret out of band (do not commit it):
+
+```powershell
+kubectl create secret generic backend-secrets -n cloudops-platform `
+  --from-literal=JWT_SECRET="$env:JWT_SECRET"
+```
+
+Optionally add the initial admin values with `--from-literal=ADMIN_USERNAME=...`
+and `--from-literal=ADMIN_PASSWORD=...`. `JWT_SECRET` is read from this
+Kubernetes Secret, not `backend-config` ConfigMap.
+
+`POST /auth/login` accepts `{"username":"...","password":"..."}` and returns a
+bearer access token. Failed logins return the generic `Invalid credentials`
+message and incur a short delay. Send the token as
+`Authorization: Bearer <access_token>`. `GET /auth/me` returns the authenticated
+user profile without password data. Authenticated viewers can read applications,
+deployments, logs, alerts, summaries, and metrics; only admins can create,
+update, delete, or transition resources. `/health`, `/ready`, `/version`, and
+`/metrics` remain public so health probes and Prometheus scraping continue
+without credential changes.
 
 ### Run locally
 
@@ -84,7 +124,6 @@ usage are not reported as metrics.
 ### Known limitations
 
 - SQLite is single-writer and tables are created at startup; there are no schema migrations or automated backups.
-- The API has no authentication or authorization.
 - The Monitoring page reads backend `/metrics`; cluster target status and Infrastructure inventory are unavailable in the browser because the backend exposes no Kubernetes API.
 - The configured kube-state-metrics v2.20.0 release documents Kubernetes v1.36 support, while the existing Kind node image is v1.37.0. This compatibility gap is a risk, not a proven cause of the current API outage.
 - A local Kind cluster is for development and is not a highly available production Kubernetes environment.
@@ -98,8 +137,9 @@ incident history, Kubernetes inventory, and cluster resource time series are
 not exposed by the backend and appear as unavailable. The Alerts page supports
 backend severity/type filters and pagination. The header alert count and
 notification popover read the derived alert feed and refresh every 30 seconds.
-The UI does not present an authenticated user identity because the API has no
-authentication. The API client reads its base URL only from `VITE_API_BASE_URL`.
+Login state is held in memory and `sessionStorage` for the current browser tab;
+viewer accounts do not see write controls. The API client reads its base URL
+only from `VITE_API_BASE_URL`.
 
 Run the frontend from `frontend/` in PowerShell:
 
@@ -150,7 +190,7 @@ python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
 ```
 
-No secrets are required for this phase.
+Set `JWT_SECRET` (at least 32 characters) before starting the API.
 
 ## API
 
@@ -161,6 +201,12 @@ Successful responses are JSON; the status code depends on the endpoint.
 | `GET` | `/` | `{"name":"CloudOps Platform","message":"CloudOps Platform API is running."}` |
 | `GET` | `/health` | `{"status":"ok"}` |
 | `GET` | `/version` | `{"name":"CloudOps Platform","version":"0.1.0"}` |
+| `POST` | `/auth/login` | `{"access_token":"...","token_type":"bearer","expires_in":1800}` |
+| `GET` | `/auth/me` | Authenticated user's public profile |
+
+`/auth/login` is public. Use the returned bearer token for protected routes.
+Read routes accept either role; write methods and deployment status transitions
+require `admin`. `/metrics` remains public for Prometheus.
 
 ### Applications API
 
@@ -272,6 +318,11 @@ URLs:
 - API: http://localhost:8000
 - API documentation: http://localhost:8000/docs
 - Prometheus `/metrics`: http://localhost:8000/metrics
+
+Copy `.env.example` to `.env`, set `JWT_SECRET` to a random value of at least
+32 characters, and optionally set the initial `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` before starting Compose. The seed values are ignored once any
+user exists in the database.
 
 The database is stored in the Terraform-managed Docker volume
 `cloudops-platform_cloudops-data` and mounted at `/data/cloudops.db`. A normal

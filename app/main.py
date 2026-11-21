@@ -16,12 +16,14 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 from app.api.routes.alerts import router as alerts_router
+from app.api.routes.auth import router as auth_router
 from app.api.routes.applications import router as applications_router
 from app.api.routes.deployments import router as deployments_router
 from app.api.routes.logs import router as logs_router
@@ -39,6 +41,9 @@ from app.core.middleware import RequestIdMiddleware
 from app.db.base import Base
 from app.db.session import create_db_engine, create_session_factory
 from app.db.upgrade import upgrade_sqlite_schema
+from app.models.user import UserRole
+from app.repositories.user import UserRepository
+from app.services.user import UserService
 
 # Re-exported so existing tests that do
 #   ``from app.main import DEFAULT_APP_NAME, DEFAULT_APP_VERSION``
@@ -66,10 +71,30 @@ async def _database_lifespan(application: FastAPI) -> AsyncIterator[None]:
         # WHY: table creation precedes the additive upgrade for legacy volumes.
         Base.metadata.create_all(bind=engine)
         upgrade_sqlite_schema(engine)
+        _seed_admin_user(application)
         yield
     finally:
         engine.dispose()
         logger.debug("_database_lifespan exit: engine_disposed=%s", True)
+
+
+def _seed_admin_user(application: FastAPI) -> None:
+    """Create the configured first admin only when the user table is empty."""
+    username = os.getenv("ADMIN_USERNAME")
+    password = os.getenv("ADMIN_PASSWORD")
+    if username is None and password is None:
+        return
+    session = application.state.session_factory()
+    try:
+        repository = UserRepository(session)
+        if repository.count() != 0:
+            return
+        if not username or not password:
+            raise ValueError("ADMIN_USERNAME and ADMIN_PASSWORD must both be configured")
+        UserService(repository).create_user(username, password, UserRole.ADMIN)
+        logger.info("Seeded the initial administrator account")
+    finally:
+        session.close()
 
 
 # Wires config, logging, middleware, CORS, handlers, and routers into one FastAPI app.
@@ -124,6 +149,7 @@ def create_app() -> FastAPI:
 
     # --- Routers ---
     application.include_router(system_router)
+    application.include_router(auth_router)
     application.include_router(applications_router)
     application.include_router(deployments_router)
     application.include_router(logs_router)
@@ -151,7 +177,7 @@ def create_app() -> FastAPI:
         allow_origins=list(settings.cors_origins),
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_credentials=False,
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
         max_age=CORS_MAX_AGE_SECONDS,
     )
 

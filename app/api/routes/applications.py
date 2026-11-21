@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Query, Response
 
+from app.core.auth import require_route_access
 from app.models.application import ApplicationStatus, Environment
 from app.schemas.application import (
     ApplicationCreate,
@@ -23,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_APPLICATION_LIMIT: int = 50
 
-router = APIRouter(prefix="/applications", tags=["applications"])
+router = APIRouter(
+    prefix="/applications",
+    tags=["applications"],
+    dependencies=[Depends(require_route_access)],
+)
 
 
 # Creates an application through the injected application service.

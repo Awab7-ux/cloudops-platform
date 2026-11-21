@@ -7,6 +7,7 @@ import { getSummary } from '../api/summary';
 import type { Application, ApplicationStatus, Environment } from '../api/types';
 import type { SummaryResponse } from '../api/types';
 import { ApplicationForm } from '../components/applications/ApplicationForm';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Function: ApplicationsPage
@@ -18,6 +19,7 @@ import { ApplicationForm } from '../components/applications/ApplicationForm';
  *   Loads application and summary data and updates local UI state after actions.
  */
 export const ApplicationsPage: React.FC = () => {
+  const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const [applications, setApplications] = useState<Application[]>([]);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
@@ -537,15 +539,17 @@ export const ApplicationsPage: React.FC = () => {
 
         {/* Primary Action Button */}
         <div className="flex items-center gap-space-sm">
-          <button
-            type="button"
-            aria-label="Add application"
-            onClick={openCreateForm}
-            className="flex items-center gap-space-xs px-space-md py-1.5 bg-primary-container text-on-primary-container font-headline-sm text-body-md rounded-lg shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[18px]">add_circle</span>
-            <span>Register Service</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              aria-label="Add application"
+              onClick={openCreateForm}
+              className="flex items-center gap-space-xs px-space-md py-1.5 bg-primary-container text-on-primary-container font-headline-sm text-body-md rounded-lg shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              <span>Register Service</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -807,33 +811,37 @@ export const ApplicationsPage: React.FC = () => {
                               terminal
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            aria-label={`Edit ${srv.name}`}
-                            onClick={() => {
-                              const application = applications.find(item => item.id === srv.id);
-                              if (application) openEditForm(application);
-                            }}
-                            className="p-1 hover:bg-surface-container-high rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
-                            title="Edit application"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={`Delete ${srv.name}`}
-                            onClick={() => {
-                              const application = applications.find(item => item.id === srv.id);
-                              if (application) {
-                                setDeleteError('');
-                                setDeleteTarget(application);
-                              }
-                            }}
-                            className="p-1 hover:bg-error-container rounded text-error transition-colors cursor-pointer"
-                            title="Delete application"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
+                          {isAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                aria-label={`Edit ${srv.name}`}
+                                onClick={() => {
+                                  const application = applications.find(item => item.id === srv.id);
+                                  if (application) openEditForm(application);
+                                }}
+                                className="p-1 hover:bg-surface-container-high rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+                                title="Edit application"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Delete ${srv.name}`}
+                                onClick={() => {
+                                  const application = applications.find(item => item.id === srv.id);
+                                  if (application) {
+                                    setDeleteError('');
+                                    setDeleteTarget(application);
+                                  }
+                                }}
+                                className="p-1 hover:bg-error-container rounded text-error transition-colors cursor-pointer"
+                                title="Delete application"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1111,7 +1119,7 @@ export const ApplicationsPage: React.FC = () => {
       )}
 
       {/* Application Form */}
-      {isRegisterModalOpen && (
+      {isAdmin && isRegisterModalOpen && (
         <ApplicationForm
           key={formApplication?.id ?? 'new'}
           initialApplication={formApplication ?? undefined}
@@ -1119,7 +1127,7 @@ export const ApplicationsPage: React.FC = () => {
           onSaved={saveForm}
         />
       )}
-      {deleteTarget && (
+      {isAdmin && deleteTarget && (
         <div className="fixed inset-0 bg-inverse-surface/40 backdrop-blur-xs z-50 flex items-center justify-center p-space-md">
           <div
             data-delete-dialog="true"

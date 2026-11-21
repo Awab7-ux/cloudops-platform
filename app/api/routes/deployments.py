@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.auth import require_route_access
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.deployment import DeploymentStatus
 from app.schemas.deployment import (
@@ -22,7 +23,7 @@ from app.services.deployment import DeploymentService, get_deployment_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["deployments"])
+router = APIRouter(tags=["deployments"], dependencies=[Depends(require_route_access)])
 
 
 # Creates a deployment through the injected deployment service.

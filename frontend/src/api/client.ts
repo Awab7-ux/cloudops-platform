@@ -3,6 +3,11 @@ export const DEFAULT_API_BASE_URL = 'http://localhost:8000';
 export const API_BASE_URL_ENV_VAR = 'VITE_API_BASE_URL';
 
 let configuredApiBaseUrl: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
 
 /**
  * Function: resolveApiBaseUrl
@@ -120,6 +125,10 @@ export async function request<T>(
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+  const token = window.sessionStorage.getItem('cloudops_access_token');
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
 
   try {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -141,6 +150,10 @@ export async function request<T>(
     }
 
     if (!response.ok) {
+      if (response.status === 401 && path !== '/auth/login') {
+        window.sessionStorage.removeItem('cloudops_access_token');
+        unauthorizedHandler?.();
+      }
       const errorBody = typeof body === 'object' && body !== null
         ? body as ErrorBody
         : {};

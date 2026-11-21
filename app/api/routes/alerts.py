@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.auth import require_route_access
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.alert import AlertSeverity, AlertType
 from app.schemas.alert import AlertList
@@ -13,7 +14,7 @@ from app.services.alerts import AlertService, get_alert_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["alerts"])
+router = APIRouter(tags=["alerts"], dependencies=[Depends(require_route_access)])
 
 
 # Reads the derived, aggregated alert feed for the current system state.

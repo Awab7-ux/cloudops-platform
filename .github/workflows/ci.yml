@@ -85,9 +85,15 @@ jobs:
           version: v1.37.0
 
       - name: Validate Docker Compose configuration
+        env:
+          # CI-validation-only dummy value; never use as a real JWT secret.
+          JWT_SECRET: ci-validation-only-dummy-jwt-secret-not-for-use
         run: docker compose config --quiet
 
       - name: Build project container images
+        env:
+          # CI-validation-only dummy value; never use as a real JWT secret.
+          JWT_SECRET: ci-validation-only-dummy-jwt-secret-not-for-use
         run: docker compose build
 
       - name: Install kubeconform

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from dataclasses import dataclass
 from urllib.parse import SplitResult, urlsplit
 
@@ -38,6 +39,9 @@ MAX_CORS_ORIGIN_LENGTH: int = 2048
 DEFAULT_PORT: int = 8000
 MIN_PORT: int = 1
 MAX_PORT: int = 65535
+DEFAULT_JWT_ALGORITHM: str = "HS256"
+DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+MIN_JWT_SECRET_LENGTH: int = 32
 
 
 # Returns a trimmed env value, falling back to default when blank.
@@ -253,6 +257,25 @@ class Settings:
     cors_origins: tuple[str, ...]
     log_level: str
     database_url: str
+    jwt_secret: str
+    jwt_algorithm: str
+    access_token_expire_minutes: int
+
+
+def _parse_access_token_expiry(raw: str) -> int:
+    """Parse the positive access-token lifetime in minutes."""
+    try:
+        expiry = int(raw)
+    except ValueError as exc:
+        raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be a positive integer") from exc
+    if expiry <= 0:
+        raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be a positive integer")
+    return expiry
+
+
+def _is_running_tests() -> bool:
+    """Return whether the process is running under pytest."""
+    return "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
 
 
 # Reads env once per create_app() call so monkeypatch tests stay isolated.
@@ -269,6 +292,19 @@ def build_settings() -> Settings:
     cors_raw = _read_env("CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS))
     log_raw = _read_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
     database_url = _read_env("DATABASE_URL", DEFAULT_DATABASE_URL)
+    jwt_secret = os.getenv("JWT_SECRET", "").strip()
+    jwt_algorithm = _read_env("JWT_ALGORITHM", DEFAULT_JWT_ALGORITHM)
+    access_token_expire_minutes = _parse_access_token_expiry(
+        _read_env(
+            "ACCESS_TOKEN_EXPIRE_MINUTES",
+            str(DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
+    )
+
+    if jwt_algorithm != DEFAULT_JWT_ALGORITHM:
+        raise ValueError("JWT_ALGORITHM must be HS256")
+    if not _is_running_tests() and len(jwt_secret) < MIN_JWT_SECRET_LENGTH:
+        raise ValueError("JWT_SECRET must be set and at least 32 characters long")
 
     port_raw = _read_env("PORT", str(DEFAULT_PORT))
     port = _parse_port(port_raw)
@@ -280,6 +316,9 @@ def build_settings() -> Settings:
         cors_origins=_parse_cors_origins(cors_raw),
         log_level=_parse_log_level(log_raw),
         database_url=database_url,
+        jwt_secret=jwt_secret,
+        jwt_algorithm=jwt_algorithm,
+        access_token_expire_minutes=access_token_expire_minutes,
     )
 
 
@@ -299,4 +338,3 @@ def get_settings(request: Request) -> Settings:
     """
     logger.debug("get_settings entry")
     return request.app.state.settings
-

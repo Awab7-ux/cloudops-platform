@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,10 @@ from app.db.session import (
     enable_sqlite_foreign_keys,
     get_session,
 )
+from app.core.auth import create_access_token
+from app.models.user import UserRole
+from app.repositories.user import UserRepository
+from app.services.user import UserService
 from app.main import create_app
 
 
@@ -47,6 +51,9 @@ def app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FastAPI:
     """Create an application backed by a temporary SQLite file."""
     database_path = tmp_path / "cloudops.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("JWT_SECRET", "pytest-only-signing-key-that-is-at-least-32-bytes")
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
     return create_app()
 
 
@@ -70,9 +77,44 @@ def ready_client(
             session.close()
 
     application.dependency_overrides[get_session] = override_get_session
+    application.state.test_session_factory = session_factory
     try:
         with TestClient(application) as client:
+            with session_factory() as session:
+                admin = UserService(UserRepository(session)).create_user(
+                    "test-admin",
+                    "test-admin-password",
+                    UserRole.ADMIN,
+                )
+                token = create_access_token(admin, application.state.settings)
+            client.headers.update({"Authorization": f"Bearer {token}"})
             yield client
     finally:
         application.dependency_overrides.clear()
 
+
+@pytest.fixture
+def unauthenticated_client(ready_client: TestClient) -> TestClient:
+    """Return the shared test client without its default administrator token."""
+    ready_client.headers.pop("Authorization", None)
+    return ready_client
+
+
+@pytest.fixture
+def admin_auth_headers() -> Callable[[FastAPI], dict[str, str]]:
+    """Create or reuse an admin for a test app and return its bearer header."""
+    def create_headers(application: FastAPI) -> dict[str, str]:
+        session_factory = application.state.session_factory
+        with session_factory() as session:
+            repository = UserRepository(session)
+            admin = repository.get_by_username("fixture-admin")
+            if admin is None:
+                admin = UserService(repository).create_user(
+                    "fixture-admin",
+                    "fixture-admin-password",
+                    UserRole.ADMIN,
+                )
+            token = create_access_token(admin, application.state.settings)
+        return {"Authorization": f"Bearer {token}"}
+
+    return create_headers

@@ -10,6 +10,11 @@ services:
       DATABASE_URL: sqlite:////data/cloudops.db
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       LOG_LEVEL: INFO
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in your environment or .env file}"
+      JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-30}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
     volumes:
       - cloudops-data:/data
     ports:

@@ -4,6 +4,7 @@ import { useApi } from '../../context/ApiContext.tsx';
 import { listAlerts } from '../../api/alerts';
 import type { AlertRecord, AlertType } from '../../api/types';
 import { GlobalSearchModal } from './GlobalSearchModal.tsx';
+import { useAuth } from '../../context/AuthContext';
 
 const ALERT_REFRESH_INTERVAL_MS = 30_000;
 
@@ -46,6 +47,7 @@ function formatAlertType(type: AlertType): string {
  */
 export const Header: React.FC = () => {
   const { health, isProbing, refreshProbes } = useApi();
+  const { logout } = useAuth();
   const location = useLocation();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -284,7 +286,6 @@ export const Header: React.FC = () => {
             )}
           </div>
 
-          {/* This locally run application has no authenticated user account. */}
           <div className="flex items-center gap-space-sm pl-space-xs">
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-sm">
               <span className="material-symbols-outlined text-on-primary text-[18px]">person</span>
@@ -295,6 +296,13 @@ export const Header: React.FC = () => {
               </span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-lg px-space-sm py-space-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+          >
+            Logout
+          </button>
         </div>
       </header>
 

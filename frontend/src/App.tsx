@@ -1,7 +1,9 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ApiProvider } from './context/ApiContext';
+import { AuthProvider, RequireAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage } from './pages/LoginPage';
 
 import { OverviewPage } from './pages/OverviewPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
@@ -25,22 +27,27 @@ export default function App() {
   return (
     <ApiProvider>
       <BrowserRouter>
-        <AppLayout>
+        <AuthProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/overview" replace />} />
-            <Route path="/overview" element={<OverviewPage />} />
-            <Route path="/applications" element={<ApplicationsPage />} />
-            <Route path="/applications/:id" element={<ApplicationDetailPage />} />
-            <Route path="/deployments" element={<DeploymentsPage />} />
-            <Route path="/deployments/:id" element={<DeploymentDetailPage />} />
-            <Route path="/infrastructure" element={<InfrastructurePage />} />
-            <Route path="/monitoring" element={<MonitoringPage />} />
-            <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/logs" element={<LogsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route element={<RequireAuth />}>
+              <Route element={<AppLayout />}>
+                <Route path="/" element={<Navigate to="/overview" replace />} />
+                <Route path="/overview" element={<OverviewPage />} />
+                <Route path="/applications" element={<ApplicationsPage />} />
+                <Route path="/applications/:id" element={<ApplicationDetailPage />} />
+                <Route path="/deployments" element={<DeploymentsPage />} />
+                <Route path="/deployments/:id" element={<DeploymentDetailPage />} />
+                <Route path="/infrastructure" element={<InfrastructurePage />} />
+                <Route path="/monitoring" element={<MonitoringPage />} />
+                <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/logs" element={<LogsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+            </Route>
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
-        </AppLayout>
+        </AuthProvider>
       </BrowserRouter>
     </ApiProvider>
   );
