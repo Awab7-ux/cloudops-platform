@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: sqlite:////data/cloudops.db
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
@@ -35,6 +36,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8000}"
+    restart: unless-stopped
     ports:
       - "127.0.0.1:3000:8080"
     depends_on:
@@ -57,8 +59,15 @@ services:
     # WHY: the Vite build embeds the API URL at build time, so changing it requires
     # rebuilding this service instead of changing runtime config in a running container.
 
-volumes:
-  cloudops-data: {}
+networks:
+  default:
+    external: true
+    name: ${CLOUDOPS_NETWORK_NAME:-cloudops-platform_default}
 
-# WHY: the top-level name keeps the stack isolated from other Docker projects without
-# using container_name, which would risk collisions with the owner's other containers.
+volumes:
+  cloudops-data:
+    external: true
+    name: ${CLOUDOPS_DATA_VOLUME_NAME:-cloudops-platform_cloudops-data}
+
+# WHY: Terraform provisions these local infrastructure resources; Compose consumes
+# them so the SQLite volume and service network have a clear owner.

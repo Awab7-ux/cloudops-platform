@@ -97,6 +97,17 @@ class AlertService:
         )
         return response
 
+    # Exposes unpaged rule counts to the metrics endpoint.
+    def count_active_by_type(self) -> dict[str, int]:
+        """Return current derived alert counts grouped by alert type."""
+        logger.debug("AlertService.count_active_by_type entry")
+        counts = self._repository.count_alerts_by_type(self._clock())
+        logger.debug(
+            "AlertService.count_active_by_type exit: type_count=%d",
+            len(counts),
+        )
+        return counts
+
 
 # Injects the repository and current clock for each request.
 def get_alert_service(

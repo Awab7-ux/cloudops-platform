@@ -17,6 +17,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.errors import build_error_response
 from app.core.logging import request_id_ctx, safe_log_value
+from app.core.metrics import CloudOpsMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,11 @@ class RequestIdMiddleware:
     """
 
 # Stores the inner ASGI app.
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        metrics: CloudOpsMetrics | None = None,
+    ) -> None:
         """Initialise with the next ASGI application in the stack.
 
         Args:
@@ -81,6 +86,7 @@ class RequestIdMiddleware:
         """
         logger.debug("RequestIdMiddleware.__init__ entry")
         self.app = app
+        self.metrics = metrics
 
 # Routes non-HTTP scopes through; for HTTP runs the ID/error-boundary flow.
     async def __call__(
@@ -189,7 +195,18 @@ class RequestIdMiddleware:
                 )
                 raise
         finally:
-            duration_ms = (time.perf_counter() - start) * 1000
+            duration_seconds = time.perf_counter() - start
+            duration_ms = duration_seconds * 1000
+            # The scrape endpoint must not count its own polling traffic.
+            if self.metrics is not None and path != "/metrics":
+                route = scope.get("route")
+                route_template = getattr(route, "path", "unmatched")
+                self.metrics.record_request(
+                    method=method,
+                    route=route_template,
+                    status_code=status_code,
+                    duration_seconds=duration_seconds,
+                )
             # Logs every request including 500s so that no failure is
             # invisible in the access log.
             logger.info(

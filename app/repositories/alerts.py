@@ -206,6 +206,40 @@ class AlertRepository:
         )
         return alerts
 
+    # Builds the full alert set once so the API and metrics use identical rule results.
+    def _get_current_alerts(
+        self,
+        now: datetime,
+    ) -> tuple[dict[str, str], list[dict[str, object]]]:
+        """Return all currently derived alerts and the application name map."""
+        logger.debug("AlertRepository._get_current_alerts entry")
+        names = self._get_application_names()
+        alerts: list[dict[str, object]] = []
+        alerts.extend(self._get_failed_deployment_alerts(now, names))
+        alerts.extend(self._get_stuck_deployment_alerts(now, names))
+        alerts.extend(self._get_error_spike_alerts(now, names))
+        logger.debug(
+            "AlertRepository._get_current_alerts exit: count=%d",
+            len(alerts),
+        )
+        return names, alerts
+
+    # Counts the same derived alert set for Prometheus without paging it.
+    def count_alerts_by_type(self, now: datetime) -> dict[str, int]:
+        """Return current alert counts keyed by the stable alert type."""
+        logger.debug("AlertRepository.count_alerts_by_type entry")
+        counts = {alert_type.value: 0 for alert_type in AlertType}
+        _, alerts = self._get_current_alerts(now)
+        for alert in alerts:
+            alert_type = alert["type"]
+            if isinstance(alert_type, AlertType):
+                counts[alert_type.value] += 1
+        logger.debug(
+            "AlertRepository.count_alerts_by_type exit: counts=%s",
+            counts,
+        )
+        return counts
+
     # Returns the merged, filtered, paginated alert list for the API.
     def list_alerts(
         self,
@@ -237,11 +271,7 @@ class AlertRepository:
             safe_log_value(alert_type.value if alert_type else None),
             safe_log_value(application_id),
         )
-        names = self._get_application_names()
-        page_items: list[dict[str, object]] = []
-        page_items.extend(self._get_failed_deployment_alerts(now, names))
-        page_items.extend(self._get_stuck_deployment_alerts(now, names))
-        page_items.extend(self._get_error_spike_alerts(now, names))
+        names, page_items = self._get_current_alerts(now)
 
         filtered = page_items
         if severity is not None:

@@ -1,7 +1,13 @@
 /**
  * Backend API service layer.
- * Probes real endpoints GET /health and GET /version at VITE_API_BASE_URL (default: http://localhost:8000).
+ * Probes the configured API endpoints using the shared API base URL resolver.
  */
+
+import { resolveApiBaseUrl } from '../api/client';
+import { formatEndpointUrl } from '../utils/apiHealth';
+
+// Preserve the existing service export while sharing the API client's resolver.
+export { resolveApiBaseUrl as resolveBaseUrl } from '../api/client';
 
 export interface ProbeResult<T = unknown> {
   ok: boolean;
@@ -12,19 +18,18 @@ export interface ProbeResult<T = unknown> {
   timestamp: Date;
 }
 
-export function resolveBaseUrl(customUrl?: string): string {
-  if (customUrl && customUrl.trim()) {
-    return customUrl.trim().replace(/\/+$/, '');
-  }
-  const envUrl = (import.meta.env?.VITE_API_BASE_URL as string | undefined);
-  if (envUrl && envUrl.trim()) {
-    return envUrl.trim().replace(/\/+$/, '');
-  }
-  return 'http://localhost:8000';
-}
-
 /**
- * Execute probe against an endpoint with timeout and latency timing.
+ * Function: executeProbe
+ * Purpose: Issue a JSON GET probe and measure its round-trip time.
+ *
+ * Args:
+ *   baseUrl: API origin used to build the request URL.
+ *   endpoint: Health endpoint path, with or without a leading slash.
+ *   timeoutMs: Maximum time allowed for the full response, including its body.
+ * Returns:
+ *   Probe status, response data when parseable, safe error text, and timing.
+ * Side effects:
+ *   Sends one GET request and aborts it when the timeout expires.
  */
 export async function executeProbe<T = unknown>(
   baseUrl: string,
@@ -32,7 +37,7 @@ export async function executeProbe<T = unknown>(
   timeoutMs: number = 4000
 ): Promise<ProbeResult<T>> {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const fullUrl = `${baseUrl}${cleanEndpoint}`;
+  const fullUrl = formatEndpointUrl(resolveApiBaseUrl(baseUrl), cleanEndpoint);
   const startTime = performance.now();
 
   const controller = new AbortController();
@@ -46,15 +51,15 @@ export async function executeProbe<T = unknown>(
       },
       signal: controller.signal,
     });
-    clearTimeout(timer);
-    const duration = Math.round(performance.now() - startTime);
 
     let data: T | null = null;
     try {
       data = await response.json();
-    } catch {
+    } catch (error: unknown) {
+      if (controller.signal.aborted) throw error;
       data = null;
     }
+    const duration = Math.round(performance.now() - startTime);
 
     if (!response.ok) {
       return {
@@ -75,7 +80,6 @@ export async function executeProbe<T = unknown>(
       timestamp: new Date(),
     };
   } catch (err: unknown) {
-    clearTimeout(timer);
     const duration = Math.round(performance.now() - startTime);
     const errorMsg = err instanceof Error ? err.message : 'Network error';
 
@@ -83,9 +87,11 @@ export async function executeProbe<T = unknown>(
       ok: false,
       status: 0,
       data: null,
-      error: errorMsg.includes('abort') ? 'Connection timed out (>4s)' : `${errorMsg} (${fullUrl})`,
+      error: controller.signal.aborted ? `Connection timed out after ${timeoutMs} ms` : errorMsg,
       rttMs: duration,
       timestamp: new Date(),
     };
+  } finally {
+    clearTimeout(timer);
   }
 }

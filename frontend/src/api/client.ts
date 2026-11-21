@@ -1,9 +1,57 @@
 export const REQUEST_TIMEOUT_MS = 10_000;
+export const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL_ENV_VAR = 'VITE_API_BASE_URL';
+
+let configuredApiBaseUrl: string | null = null;
+
+/**
+ * Function: resolveApiBaseUrl
+ * Purpose: Select and normalize the active API origin.
+ *
+ * Args:
+ *   customUrl: Optional URL that takes precedence over configured values.
+ *   options: Resolver flags, including whether to ignore the runtime override.
+ * Returns:
+ *   The selected origin without trailing slashes.
+ */
+export function resolveApiBaseUrl(
+  customUrl?: string | null,
+  options: { ignoreConfiguredUrl?: boolean } = {},
+): string {
+  const environmentUrl = (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.trim();
+  const configuredUrl = options.ignoreConfiguredUrl ? null : configuredApiBaseUrl;
+  const selectedUrl = customUrl?.trim() || configuredUrl || environmentUrl || DEFAULT_API_BASE_URL;
+  return selectedUrl.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Function: setConfiguredApiBaseUrl
+ * Purpose: Store the normalized API origin selected in Settings.
+ *
+ * Args:
+ *   url: User-selected API origin.
+ * Returns:
+ *   The normalized origin stored for subsequent API calls.
+ */
+export function setConfiguredApiBaseUrl(url: string): string {
+  const resolvedUrl = resolveApiBaseUrl(url, { ignoreConfiguredUrl: true });
+  configuredApiBaseUrl = resolvedUrl;
+  return resolvedUrl;
+}
 
 export type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse';
 
 export class ApiError extends Error {
-  // WHY: callers need stable status, category, and field data without inspecting raw responses.
+  /**
+   * Function: ApiError.constructor
+   * Purpose: Attach stable HTTP status, error kind, and validation fields.
+   *
+   * Args:
+   *   message: Safe error message for the caller.
+   *   status: HTTP status code, or zero for transport errors.
+   *   kind: Network, timeout, HTTP, or response-parse error category.
+   *   fieldErrors: Optional validation messages keyed by field.
+   */
   constructor(
     message: string,
     public readonly status: number,
@@ -24,7 +72,15 @@ interface ErrorBody {
   detail?: unknown;
 }
 
-// WHY: only FastAPI's documented validation shape is exposed as field feedback.
+/**
+ * Function: validationFieldErrors
+ * Purpose: Extract field messages from FastAPI's validation error response.
+ *
+ * Args:
+ *   body: Parsed error response body.
+ * Returns:
+ *   Validation messages keyed by field, or an empty object for other shapes.
+ */
 function validationFieldErrors(body: ErrorBody): Record<string, string> {
   if (!Array.isArray(body.detail)) return {};
 
@@ -40,21 +96,25 @@ function validationFieldErrors(body: ErrorBody): Record<string, string> {
   return fields;
 }
 
-// WHY: all API calls share one configured origin, timeout policy, and safe error mapping.
+/**
+ * Function: request
+ * Purpose: Send a typed API request using shared timeout and error handling.
+ *
+ * Args:
+ *   path: API path relative to the configured origin.
+ *   init: Optional Fetch request options.
+ *   isValidResponse: Optional runtime validator for the response body.
+ * Returns:
+ *   The parsed response body, or undefined for an empty successful response.
+ * Throws:
+ *   ApiError for network, timeout, HTTP, parse, or contract-validation failures.
+ */
 export async function request<T>(
   path: string,
   init: RequestInit = {},
+  isValidResponse?: (body: unknown) => body is T,
 ): Promise<T> {
-  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL;
-  if (!configuredBaseUrl?.trim()) {
-    throw new ApiError(
-      'API base URL is not configured. Set VITE_API_BASE_URL.',
-      0,
-      'network',
-    );
-  }
-
-  const baseUrl = configuredBaseUrl.trim().replace(/\/+$/, '');
+  const baseUrl = resolveApiBaseUrl();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const headers = new Headers(init.headers);
@@ -93,6 +153,14 @@ export async function request<T>(
           ? { name: detail }
           : {};
       throw new ApiError(detail, response.status, 'http', fieldErrors);
+    }
+
+    if (isValidResponse && !isValidResponse(body)) {
+      throw new ApiError(
+        'The server returned data in an unexpected format.',
+        response.status,
+        'parse',
+      );
     }
 
     return body as T;

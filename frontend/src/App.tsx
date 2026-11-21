@@ -14,6 +14,13 @@ import { AlertsPage } from './pages/AlertsPage';
 import { LogsPage } from './pages/LogsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
+/**
+ * Function: App
+ * Purpose: Define application routes inside API and layout providers.
+ *
+ * Returns:
+ *   The routed CloudOps Platform interface.
+ */
 export default function App() {
   return (
     <ApiProvider>

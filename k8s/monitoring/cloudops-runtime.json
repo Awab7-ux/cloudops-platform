@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "expr": "sum by (route) (rate(cloudops_http_requests_total[5m]))", "legendFormat": "{{route}}", "refId": "A" }],
+      "title": "API request rate by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "expr": "sum by (route) (rate(cloudops_http_requests_total{status_code=~\"5..\"}[5m]))", "legendFormat": "{{route}}", "refId": "A" }],
+      "title": "API server error rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(cloudops_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "A" }],
+      "title": "API request latency (p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "expr": "cloudops_deployments_by_status", "legendFormat": "{{status}}", "refId": "A" }],
+      "title": "Current deployments by status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
+      "id": 5,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(kube_pod_status_ready{namespace=\"cloudops-platform\",condition=\"true\"})", "refId": "A" }],
+      "title": "Ready pods in CloudOps namespace",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
+      "id": 6,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"cloudops-platform\"}[1h]))", "refId": "A" }],
+      "title": "Container restarts in the last hour",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
+      "id": 7,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(kube_deployment_status_replicas_unavailable{namespace=\"cloudops-platform\"})", "refId": "A" }],
+      "title": "Unavailable deployment replicas",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 22 },
+      "id": 8,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(kube_persistentvolumeclaim_status_phase{namespace=\"cloudops-platform\",phase=\"Bound\"})", "refId": "A" }],
+      "title": "Bound persistent volume claims",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 22 },
+      "id": 9,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "count(ALERTS{alertstate=\"firing\"})", "refId": "A" }],
+      "title": "Firing Prometheus alerts",
+      "type": "stat"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["cloudops", "live-data"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "CloudOps Runtime",
+  "uid": "cloudops-runtime",
+  "version": 1
+}

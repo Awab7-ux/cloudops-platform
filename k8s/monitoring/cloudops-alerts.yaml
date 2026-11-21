@@ -1,0 +1,54 @@
+groups:
+  - name: cloudops-runtime
+    rules:
+      - alert: CloudOpsApiUnavailable
+        expr: up{job="cloudops-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: CloudOps API metrics endpoint is unavailable
+          description: Prometheus has not been able to scrape the CloudOps API for one minute.
+
+      - alert: CloudOpsHighApiErrorRate
+        expr: >-
+          sum(rate(cloudops_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(cloudops_http_requests_total[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: CloudOps API server error rate is above five percent
+
+      - alert: deployment_failed
+        expr: cloudops_active_alerts{type="deployment_failed"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: The latest deployment for an application failed
+
+      - alert: deployment_stuck
+        expr: cloudops_active_alerts{type="deployment_stuck"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A deployment has been running for at least 60 minutes
+
+      - alert: error_log_spike
+        expr: cloudops_active_alerts{type="error_log_spike"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: An application has at least five error logs in the last hour
+
+      - alert: CloudOpsDeploymentUnavailable
+        expr: >-
+          sum(kube_deployment_status_replicas_unavailable{namespace="cloudops-platform"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A CloudOps namespace deployment has unavailable replicas

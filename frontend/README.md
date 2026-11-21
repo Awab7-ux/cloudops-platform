@@ -1,22 +1,22 @@
 # CloudOps Platform - Cloud Infrastructure & Operations Dashboard
 
-A production-grade, highly responsive cloud infrastructure and operations management console built with React, TypeScript, Tailwind CSS, and Vite.
+A responsive local CloudOps dashboard built with React, TypeScript, Tailwind CSS, and Vite. Backend-supported views use live API data; unsupported cluster capabilities are shown as unavailable.
 
-Designed for Site Reliability Engineers (SREs), DevOps architects, and platform teams monitoring distributed microservices, Kubernetes clusters, canary rollouts, multi-AZ cloud topologies, and incident remediation.
+Designed for local development and operations work with the CloudOps FastAPI backend and optional Prometheus/Grafana Kubernetes monitoring stack.
 
 ---
 
 ## Features
 
-- **Executive Cluster Overview**: High-level Golden Signal metrics (cluster health, daily requests, p95 latency, error budget burn), cluster throughput graphs, node pool capacities, and real-time operational event stream.
-- **Applications**: Real application records managed through the backend API. Remaining dashboard pages continue to use explicitly labeled demo data.
-- **Canary Deployments & Rollout Pipeline**: Progressive traffic stepping (10% → 25% → 50% → 100%), real-time baseline vs. canary latency and error telemetry comparison, replica pod fleet grid, and emergency rollback simulation.
-- **Cluster Infrastructure & Multi-AZ**: Physical node fleet inventory (compute, memory, storage optimized), multi-AZ zone balance (us-east-1a/b/c), persistent volume claims (PVCs), and Terraform HCL blueprint inspector.
-- **System Monitoring & Apdex**: Apdex score breakdown across microservices, percentile latency curves (p50 / p95 / p99), HTTP status distribution (2xx / 3xx / 4xx / 5xx), and global synthetic edge probes.
-- **Incidents & Auto-Remediation**: Active alert escalation with timeline progression, one-click incident acknowledgement and resolution, automated remediation playbooks (HPA scale burst, Redis failover, pod recycle), and notification channel health pings.
-- **Structured Log Stream**: High-frequency streaming logs with search syntax, severity filters, stacked ingestion rate histogram, and expandable OpenTelemetry trace/span inspect panels.
-- **Live Backend API Integration**: Applications CRUD plus the existing `GET /health` and `GET /version` probes use `VITE_API_BASE_URL`.
-- **Demo Data Transparency**: Pages other than Applications continue to identify simulated metrics and fixtures as `Demo data`.
+- **Overview**: Live application, deployment, and log summaries plus `/health`, `/version`, and `/` probes. Cluster CPU, memory, and node history are shown as unavailable because the frontend has no such API.
+- **Applications**: Create, list, edit, and delete application records through the backend. Application details also load deployment history and persisted application logs.
+- **Deployments**: Application-scoped deployment history, record creation, and lifecycle status transitions use the backend API. These operations do not trigger Kubernetes rollouts.
+- **Infrastructure**: Clearly reports that node, pod, PVC, and Terraform state are not exposed to the browser.
+- **Monitoring**: Reads actual backend Prometheus metrics from `GET /metrics`. Prometheus target health, kube-state-metrics, and Grafana datasource status are not exposed through the browser API.
+- **Alerts**: Displays current derived alerts from the backend. Acknowledgement, resolution, playbooks, notification channels, and historical incident data are unavailable.
+- **Logs**: Searches and filters persisted backend log records. Container stdout/stderr, trace IDs, spans, and stack traces are not provided by the logs API.
+- **Live Backend API Integration**: Applications CRUD, scoped deployments and logs, summary, alerts, metrics, and `/health`, `/version`, and `/` probes use `VITE_API_BASE_URL`.
+- **Sample data**: Files under `src/data/` remain available as development fixtures and are not rendered as production operational data.
 
 ---
 
@@ -48,7 +48,7 @@ npm ci
 
 ### Environment Configuration
 
-The application reads the backend base URL from `VITE_API_BASE_URL`; the Applications API client does not use a hard-coded fallback. In PowerShell, set the variable before starting the development server:
+The application reads the backend base URL from `VITE_API_BASE_URL`; the typed API clients do not use a hard-coded fallback. In PowerShell, set the variable before starting the development server:
 
 ```powershell
 $env:VITE_API_BASE_URL="http://localhost:8000"
@@ -58,7 +58,7 @@ The existing backend probe connects to:
 - `GET /health` - Returns `{ status: "ok" | "healthy", timestamp?: string }`
 - `GET /version` - Returns `{ version: string, build?: string, commit?: string }`
 
-The Applications page reads and updates records using `GET`, `POST`, `PATCH`, and `DELETE /applications`. Other pages continue to show demo data. If the backend is not running or the URL is not configured, the Applications page reports the API error and offers retry where appropriate.
+The Applications page reads and updates records using `GET`, `POST`, `PATCH`, and `DELETE /applications`. Deployments are listed and created under a selected application with `GET` and `POST /applications/{id}/deployments`; one deployment is read with `GET /deployments/{id}` and its status is updated with `PATCH /deployments/{id}/status`. The API has no global deployments list endpoint, so choose an application on the Deployments page first. The list selector retains its application in the URL query. Logs, alerts, summaries, and Prometheus metrics use `/logs`, `/alerts`, `/summary`, and `/metrics`. If the backend is unavailable or the URL is not configured, API-backed views display an error and offer retry where appropriate. Fields without an API source are explicitly shown as unavailable.
 
 ### Development Server
 
@@ -91,7 +91,7 @@ npm run preview
 
 ### Unit Tests
 
-Run the Applications API and UI tests:
+Run the API and UI tests, including deployment lifecycle and detail-page coverage:
 
 ```bash
 npm run test
@@ -110,9 +110,15 @@ npx tsx --test src/utils/telemetry.test.ts
 ```
 ├── public/                     # Static assets and design references
 ├── src/
-│   ├── api/                    # Live Applications API client
+│   ├── api/                    # Live backend API clients
 │   │   ├── applications.ts     # Applications CRUD API calls
 │   │   ├── applications.test.ts # API client contract tests
+│   │   ├── alerts.ts           # Derived alerts API
+│   │   ├── deployments.ts      # Application-scoped deployments API calls
+│   │   ├── deployments.test.ts # Deployment API contract and transition tests
+│   │   ├── logs.ts             # Persisted application/deployment logs API
+│   │   ├── metrics.ts          # Prometheus text endpoint client and parser
+│   │   ├── summary.ts          # Dashboard summary API
 │   │   ├── client.ts           # Shared timeout and typed error handling
 │   │   └── types.ts            # Backend request and response types
 │   ├── components/             # Reusable UI components

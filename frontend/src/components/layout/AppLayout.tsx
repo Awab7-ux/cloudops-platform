@@ -7,6 +7,15 @@ interface AppLayoutProps {
   children?: React.ReactNode;
 }
 
+/**
+ * Function: AppLayout
+ * Purpose: Place routed page content inside the shared application shell.
+ *
+ * Args:
+ *   children: Current route's page content.
+ * Returns:
+ *   The page with its persistent sidebar, header, and content region.
+ */
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-surface text-on-surface">
