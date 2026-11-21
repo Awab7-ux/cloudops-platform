@@ -100,3 +100,5 @@ node_modules/
 /tsconfig.base.json
 /tsconfig.json
 /.npmrc
+
+pytest-of-hp/
