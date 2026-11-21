@@ -119,7 +119,7 @@ def test_only_content_type_is_configured_as_an_allowed_header(
         if middleware.cls.__name__ == "CORSMiddleware"
     )
 
-    assert cors_middleware.kwargs["allow_headers"] == ["Content-Type"]
+    assert cors_middleware.kwargs["allow_headers"] == ["Content-Type", "Authorization"]
 
 
 # Keeps browser preflight caching at the intended duration.

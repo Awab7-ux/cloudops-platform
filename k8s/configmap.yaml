@@ -11,3 +11,5 @@ data:
   LOG_LEVEL: INFO
   # Browser requests originate from the locally port-forwarded frontend.
   CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+  JWT_ALGORITHM: HS256
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"

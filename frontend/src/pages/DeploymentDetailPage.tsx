@@ -5,6 +5,7 @@ import { getApplication } from '../api/applications';
 import { getDeployment, updateDeploymentStatus } from '../api/deployments';
 import type { Application, Deployment, DeploymentStatus } from '../api/types';
 import { DeploymentStatusActions } from '../components/deployments/DeploymentStatusActions';
+import { useAuth } from '../context/AuthContext';
 
 /** Function: formatTimestamp. Purpose: Format a valid timestamp or return a dash. */
 function formatTimestamp(value: string | null): string {
@@ -23,6 +24,7 @@ function formatTimestamp(value: string | null): string {
  *   Loads deployment and related application records and sends status transitions.
  */
 export const DeploymentDetailPage: React.FC = () => {
+  const { isAdmin } = useAuth();
   const { id } = useParams<{ id: string }>();
   const [deployment, setDeployment] = useState<Deployment | null>(null);
   const [application, setApplication] = useState<Application | null>(null);
@@ -169,7 +171,9 @@ export const DeploymentDetailPage: React.FC = () => {
                 <span className="rounded-full bg-surface-container-high px-3 py-1 font-label-sm text-label-sm font-semibold text-on-surface">
                   {deployment.status}
                 </span>
-                <DeploymentStatusActions status={deployment.status} onTransition={transition} />
+                {isAdmin && (
+                  <DeploymentStatusActions status={deployment.status} onTransition={transition} />
+                )}
               </div>
             </div>
             <p className="mt-4 rounded-lg bg-surface-container-low p-3 text-sm text-on-surface-variant">

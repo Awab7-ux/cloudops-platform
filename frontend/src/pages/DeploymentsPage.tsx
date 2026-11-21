@@ -9,6 +9,7 @@ import {
 import type { Application, Deployment, DeploymentStatus } from '../api/types';
 import { DeploymentCreateForm } from '../components/deployments/DeploymentCreateForm';
 import { DeploymentStatusActions } from '../components/deployments/DeploymentStatusActions';
+import { useAuth } from '../context/AuthContext';
 
 /** Function: formatTimestamp. Purpose: Format a valid deployment timestamp or return a dash. */
 function formatTimestamp(value: string | null): string {
@@ -60,6 +61,7 @@ function escapeCsvValue(value: string | null | undefined): string {
  *   Loads application and deployment data and sends user-selected API actions.
  */
 export const DeploymentsPage: React.FC = () => {
+  const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedApplicationId = searchParams.get('application') ?? '';
@@ -323,16 +325,18 @@ export const DeploymentsPage: React.FC = () => {
 
         {/* Action Button */}
         <div className="relative group flex items-center self-start xl:self-auto">
-          <button
-            type="button"
-            disabled={!selectedApplicationId}
-            aria-label="Create deployment"
-            onClick={() => setCreateOpen(true)}
-            className="ml-space-sm flex items-center gap-space-xs px-space-md py-space-sm rounded-lg bg-primary text-on-primary font-body-sm text-body-sm shadow-sm transition-all hover:bg-primary-container disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[18px]">add_circle</span>
-            Create deployment
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={!selectedApplicationId}
+              aria-label="Create deployment"
+              onClick={() => setCreateOpen(true)}
+              className="ml-space-sm flex items-center gap-space-xs px-space-md py-space-sm rounded-lg bg-primary text-on-primary font-body-sm text-body-sm shadow-sm transition-all hover:bg-primary-container disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              Create deployment
+            </button>
+          )}
         </div>
       </div>
 
@@ -618,10 +622,12 @@ export const DeploymentsPage: React.FC = () => {
 
                   <td className="py-space-md px-space-md text-right" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-space-xs">
-                      <DeploymentStatusActions
-                        status={deployments.find(item => item.id === dep.id)?.status ?? 'pending'}
-                        onTransition={status => transition(dep.id, status)}
-                      />
+                      {isAdmin && (
+                        <DeploymentStatusActions
+                          status={deployments.find(item => item.id === dep.id)?.status ?? 'pending'}
+                          onTransition={status => transition(dep.id, status)}
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => navigate(`/deployments/${dep.id}`)}
@@ -685,7 +691,7 @@ export const DeploymentsPage: React.FC = () => {
           Create and status-transition requests update backend records. The API does not expose rollout telemetry, immutable audit storage, cluster rollback gates, or deployment initiators.
         </p>
       </div>
-        {createOpen && selectedApplicationId && (
+        {isAdmin && createOpen && selectedApplicationId && (
           <DeploymentCreateForm
             applicationId={selectedApplicationId}
             onCancel={() => setCreateOpen(false)}

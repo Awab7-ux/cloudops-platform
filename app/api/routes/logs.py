@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from pydantic import AwareDatetime
 
+from app.core.auth import require_route_access
 from app.core.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from app.models.log import LogLevel
 from app.schemas.log import LogCreate, LogList, LogRead
@@ -15,7 +16,7 @@ from app.services.log import LogService, get_log_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["logs"])
+router = APIRouter(tags=["logs"], dependencies=[Depends(require_route_access)])
 
 
 # Creates a log entry under one application and records the server timestamp.

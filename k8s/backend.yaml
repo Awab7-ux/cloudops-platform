@@ -56,6 +56,33 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: CORS_ORIGINS
+            - name: JWT_ALGORITHM
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: JWT_ALGORITHM
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: ACCESS_TOKEN_EXPIRE_MINUTES
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: JWT_SECRET
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: ADMIN_USERNAME
+                  optional: true
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: ADMIN_PASSWORD
+                  optional: true
           startupProbe:
             httpGet:
               path: /health

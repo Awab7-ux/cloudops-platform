@@ -121,6 +121,7 @@ def _create_legacy_database(database_path: Path) -> Engine:
 def test_sqlite_upgrade_preserves_legacy_rows_and_is_idempotent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    admin_auth_headers,
 ) -> None:
     """Upgrade adds five nullable columns and supports subsequent API writes."""
     database_path = tmp_path / "legacy-cloudops.db"
@@ -153,6 +154,7 @@ def test_sqlite_upgrade_preserves_legacy_rows_and_is_idempotent(
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     application = create_app()
     with TestClient(application) as client:
+        client.headers.update(admin_auth_headers(application))
         legacy_application = client.get(
             "/applications/00000000-0000-4000-8000-000000000001"
         )

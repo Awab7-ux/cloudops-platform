@@ -6,12 +6,13 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+from app.core.auth import require_route_access
 from app.schemas.summary import SummaryResponse
 from app.services.summary import SummaryService, get_summary_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["summary"])
+router = APIRouter(tags=["summary"], dependencies=[Depends(require_route_access)])
 
 
 # Reads the computed dashboard summary for the current system state.
