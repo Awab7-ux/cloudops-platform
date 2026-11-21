@@ -14,8 +14,9 @@ const alert: AlertRecord = {
   since: '2026-01-01T00:00:00Z',
 };
 
-function page(items: AlertRecord[], total = items.length): AlertPage {
-  return { items, total, limit: 200, offset: 0, generated_at: '2026-01-01T00:01:00Z' };
+/** Function: page. Purpose: Build an alerts response for pagination scenarios. */
+function page(items: AlertRecord[], total = items.length, limit = 25, offset = 0): AlertPage {
+  return { items, total, limit, offset, generated_at: '2026-01-01T00:01:00Z' };
 }
 
 describe('AlertsPage', () => {
@@ -30,7 +31,7 @@ describe('AlertsPage', () => {
     expect(await screen.findByText('Deployment did not complete')).toBeInTheDocument();
     expect(screen.getAllByText('payments').length).toBeGreaterThan(0);
     expect(screen.getByText('high')).toBeInTheDocument();
-    expect(listAlerts).toHaveBeenCalledWith({ limit: 200, offset: 0 });
+    expect(listAlerts).toHaveBeenCalledWith({ limit: 25, offset: 0 });
     expect(screen.getByRole('button', { name: 'Acknowledge alert unavailable' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Resolve alert unavailable' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'View Alert Details' }));
@@ -67,5 +68,40 @@ describe('AlertsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No Alerts Returned')).toBeInTheDocument();
     expect(listAlerts).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends severity and type filters to the backend', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAlerts).mockResolvedValue(page([]));
+    render(<AlertsPage />);
+
+    await screen.findByText('No Alerts Returned');
+    await user.selectOptions(screen.getByLabelText('Filter alerts by severity'), 'medium');
+    await waitFor(() => expect(listAlerts).toHaveBeenLastCalledWith({ limit: 25, offset: 0, severity: 'medium' }));
+    await user.selectOptions(screen.getByLabelText('Filter alerts by type'), 'deployment_stuck');
+    await waitFor(() => expect(listAlerts).toHaveBeenLastCalledWith({
+      limit: 25,
+      offset: 0,
+      severity: 'medium',
+      type: 'deployment_stuck',
+    }));
+  });
+
+  it('loads the next server page and reports the API total', async () => {
+    const user = userEvent.setup();
+    const firstPage = Array.from({ length: 25 }, (_, index) => ({ ...alert, id: `alert-${index + 1}` }));
+    const secondPage = Array.from({ length: 5 }, (_, index) => ({ ...alert, id: `alert-${index + 26}` }));
+    vi.mocked(listAlerts)
+      .mockResolvedValueOnce(page(firstPage, 30))
+      .mockResolvedValueOnce(page(secondPage, 30, 25, 25));
+    render(<AlertsPage />);
+
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1–25 of 30 alerts')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+
+    await waitFor(() => expect(listAlerts).toHaveBeenLastCalledWith({ limit: 25, offset: 25 }));
+    expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Showing 26–30 of 30 alerts')).toBeInTheDocument();
   });
 });

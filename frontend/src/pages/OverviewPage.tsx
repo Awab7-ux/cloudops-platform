@@ -4,6 +4,15 @@ import { listLogs } from '../api/logs';
 import type { SummaryResponse } from '../api/types';
 import { useApi } from '../context/ApiContext.tsx';
 
+/**
+ * Function: OverviewPage
+ * Purpose: Show live summary counts, API probes, and supported quick actions.
+ *
+ * Returns:
+ *   The overview dashboard with backend-derived data and explicit unavailable states.
+ * Side effects:
+ *   Loads the summary API and refreshes API probes when requested.
+ */
 export const OverviewPage: React.FC = () => {
   const { health, version, root, isProbing, refreshProbes, lastChecked, baseUrl } = useApi();
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
@@ -58,7 +67,7 @@ export const OverviewPage: React.FC = () => {
     summary: `Latest deployment failed for ${deployment.application_name}`,
     detail: deployment.commit_sha ? `Commit: ${deployment.commit_sha}` : 'Commit not available',
     environment: 'Unavailable',
-    actor: 'Backend API',
+    actor: 'Unavailable',
     status: deployment.status,
     timestamp: deployment.finished_at
       ? new Date(deployment.finished_at).toLocaleString()
@@ -71,26 +80,50 @@ export const OverviewPage: React.FC = () => {
   const isConnected = health.status === 'success';
 
   // Quick Action handlers
+  /**
+   * Function: handleInspectHealth
+   * Purpose: Refresh all probes and report the result of GET /health.
+   *
+   * Side effects:
+   *   Updates shared probe state and shows temporary health feedback.
+   */
   const handleInspectHealth = async () => {
-    await refreshProbes();
+    const probes = await refreshProbes();
     setQuickActionMessage(
-      health.status === 'success'
-        ? `GET /health succeeded: ${JSON.stringify(health.data)}`
-        : `GET /health failed: ${health.error || 'Server offline'}`
+      !probes
+        ? 'Health check superseded by a newer request.'
+        : probes.health.status === 'success'
+          ? `GET /health succeeded: ${JSON.stringify(probes.health.data)}`
+          : `GET /health failed: ${probes.health.error || 'Server offline'}`
     );
     setTimeout(() => setQuickActionMessage(null), 4000);
   };
 
+  /**
+   * Function: handleCheckVersion
+   * Purpose: Refresh all probes and report the result of GET /version.
+   *
+   * Side effects:
+   *   Updates shared probe state and shows temporary version feedback.
+   */
   const handleCheckVersion = async () => {
-    await refreshProbes();
+    const probes = await refreshProbes();
     setQuickActionMessage(
-      version.status === 'success'
-        ? `GET /version succeeded: ${JSON.stringify(version.data)}`
-        : `GET /version failed: ${version.error || 'Server offline'}`
+      !probes
+        ? 'Version check superseded by a newer request.'
+        : probes.version.status === 'success'
+          ? `GET /version succeeded: ${JSON.stringify(probes.version.data)}`
+          : `GET /version failed: ${probes.version.error || 'Server offline'}`
     );
     setTimeout(() => setQuickActionMessage(null), 4000);
   };
 
+  /**
+   * Function: handleExportLogs
+   * Purpose: Export the latest backend log page as a JSON file.
+   * Side effects:
+   *   Requests logs, creates a browser download, and announces the result.
+   */
   const handleExportLogs = async () => {
     try {
       const result = await listLogs({ limit: 200, offset: 0 });

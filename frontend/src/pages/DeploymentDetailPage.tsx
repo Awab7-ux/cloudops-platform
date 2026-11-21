@@ -6,10 +6,22 @@ import { getDeployment, updateDeploymentStatus } from '../api/deployments';
 import type { Application, Deployment, DeploymentStatus } from '../api/types';
 import { DeploymentStatusActions } from '../components/deployments/DeploymentStatusActions';
 
+/** Function: formatTimestamp. Purpose: Format a valid timestamp or return a dash. */
 function formatTimestamp(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '-';
+  if (!value) return '-';
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? '-' : timestamp.toLocaleString();
 }
 
+/**
+ * Function: DeploymentDetailPage
+ * Purpose: Display one deployment and its parent application details.
+ *
+ * Returns:
+ *   Deployment data, lifecycle actions, and retryable loading/error states.
+ * Side effects:
+ *   Loads deployment and related application records and sends status transitions.
+ */
 export const DeploymentDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [deployment, setDeployment] = useState<Deployment | null>(null);
@@ -51,6 +63,15 @@ export const DeploymentDetailPage: React.FC = () => {
     return () => { active = false; };
   }, [id, refresh]);
 
+  /**
+   * Function: transition
+   * Purpose: Submit a lifecycle transition for the displayed deployment.
+   *
+   * Args:
+   *   status: Requested next deployment status.
+   * Side effects:
+   *   Updates the detail record or reloads it after a conflict or deletion.
+   */
   const transition = async (status: DeploymentStatus) => {
     if (!id) return;
     setDetailMessage('');

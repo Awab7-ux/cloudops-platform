@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { listApplications } from '../api/applications';
@@ -10,20 +10,55 @@ import type { Application, Deployment, DeploymentStatus } from '../api/types';
 import { DeploymentCreateForm } from '../components/deployments/DeploymentCreateForm';
 import { DeploymentStatusActions } from '../components/deployments/DeploymentStatusActions';
 
+/** Function: formatTimestamp. Purpose: Format a valid deployment timestamp or return a dash. */
 function formatTimestamp(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '-';
+  if (!value) return '-';
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? '-' : timestamp.toLocaleString();
 }
 
+/**
+ * Function: formatDuration
+ * Purpose: Format elapsed time between deployment start and finish timestamps.
+ *
+ * Args:
+ *   startedAt: Start time in ISO 8601 form, or null.
+ *   finishedAt: Finish time in ISO 8601 form, or null.
+ * Returns:
+ *   Minutes and seconds, or a dash when either timestamp is missing or invalid.
+ */
 function formatDuration(startedAt: string | null, finishedAt: string | null): string {
   if (!startedAt || !finishedAt) return '-';
-  const elapsedSeconds = Math.max(0, Math.floor(
-    (Date.parse(finishedAt) - Date.parse(startedAt)) / 1000,
-  ));
+  const elapsedMilliseconds = Date.parse(finishedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(elapsedMilliseconds)) return '-';
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMilliseconds / 1000));
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
+/**
+ * Function: escapeCsvValue
+ * Purpose: Quote and escape a value for a CSV field.
+ *
+ * Args:
+ *   value: Field value; null and undefined become empty strings.
+ * Returns:
+ *   A quoted CSV field with embedded quotes doubled.
+ */
+function escapeCsvValue(value: string | null | undefined): string {
+  return `"${(value ?? '').replaceAll('"', '""')}"`;
+}
+
+/**
+ * Function: DeploymentsPage
+ * Purpose: Browse deployments, create them, and request valid lifecycle transitions.
+ *
+ * Returns:
+ *   A searchable, filterable, paginated deployment view.
+ * Side effects:
+ *   Loads application and deployment data and sends user-selected API actions.
+ */
 export const DeploymentsPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,6 +80,7 @@ export const DeploymentsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | DeploymentStatus>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const deploymentRequestSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -70,7 +106,14 @@ export const DeploymentsPage: React.FC = () => {
     return () => { active = false; };
   }, [applicationsRefresh, setSearchParams]);
 
+  /**
+   * Function: loadDeployments
+   * Purpose: Load the current application's requested deployment page.
+   * Side effects:
+   *   Updates deployment, pagination, loading, and error state; ignores stale requests.
+   */
   const loadDeployments = useCallback(async () => {
+    const requestId = ++deploymentRequestSequence.current;
     if (!selectedApplicationId) {
       setDeployments([]);
       setTotal(0);
@@ -85,19 +128,22 @@ export const DeploymentsPage: React.FC = () => {
         offset,
         ...(statusFilter === 'all' ? {} : { status: statusFilter }),
       });
+      if (requestId !== deploymentRequestSequence.current) return;
       setDeployments(result.items);
       setTotal(result.total);
     } catch (error: unknown) {
+      if (requestId !== deploymentRequestSequence.current) return;
       setDeployments([]);
       setTotal(0);
       setListError(error instanceof Error ? error.message : 'Unable to load deployments.');
     } finally {
-      setLoadingDeployments(false);
+      if (requestId === deploymentRequestSequence.current) setLoadingDeployments(false);
     }
   }, [offset, pageSize, selectedApplicationId, statusFilter]);
 
   useEffect(() => {
     void loadDeployments();
+    return () => { deploymentRequestSequence.current += 1; };
   }, [loadDeployments, refresh]);
 
   const liveDeployments = useMemo(() => deployments.map(deployment => {
@@ -121,17 +167,32 @@ export const DeploymentsPage: React.FC = () => {
     };
   }), [applications, deployments]);
 
+  /** Function: showToast. Purpose: Show a short-lived deployment action message. */
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleCopy = (id: string, e: React.MouseEvent) => {
+  /**
+   * Function: handleCopy
+   * Purpose: Copy a deployment ID and report clipboard failures to the user.
+   *
+   * Args:
+   *   id: Deployment identifier to copy.
+   *   e: Click event from the copy control.
+   * Side effects:
+   *   Stops row navigation and writes to the browser clipboard when permitted.
+   */
+  const handleCopy = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    showToast(`Copied ${id} to clipboard`);
-    setTimeout(() => setCopiedId(null), 1500);
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      showToast(`Copied ${id} to clipboard`);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      showToast('Clipboard access is unavailable in this browser.');
+    }
   };
 
   const filteredDeployments = useMemo(() => {
@@ -150,6 +211,16 @@ export const DeploymentsPage: React.FC = () => {
     });
   }, [liveDeployments, searchTerm, envFilter, statusFilter]);
 
+  /**
+   * Function: transition
+   * Purpose: Request a deployment lifecycle transition from the backend.
+   *
+   * Args:
+   *   deploymentId: Deployment identifier.
+   *   status: Requested next state.
+   * Side effects:
+   *   Updates the row or refreshes the list after a concurrency conflict.
+   */
   const transition = async (deploymentId: string, status: DeploymentStatus) => {
     setMessage('');
     try {
@@ -168,6 +239,12 @@ export const DeploymentsPage: React.FC = () => {
     }
   };
 
+  /**
+   * Function: handleExportCsv
+   * Purpose: Download the currently filtered deployment rows as CSV.
+   * Side effects:
+   *   Creates a browser download and shows a completion toast.
+   */
   const handleExportCsv = () => {
     const csvContent =
       "Deployment ID,Application,Version,Commit SHA,Environment,Status,Created At,Started At,Finished At\n" +
@@ -175,7 +252,17 @@ export const DeploymentsPage: React.FC = () => {
         .map(
           row => {
             const deployment = row.deployment;
-            return `"${row.id}","${row.app}","${row.version}","${row.commitSha ?? ''}","${row.environment ?? ''}","${row.status}","${deployment.created_at}","${deployment.started_at ?? ''}","${deployment.finished_at ?? ''}"`;
+            return [
+              row.id,
+              row.app,
+              row.version,
+              row.commitSha,
+              row.environment,
+              row.status,
+              deployment.created_at,
+              deployment.started_at,
+              deployment.finished_at,
+            ].map(escapeCsvValue).join(',');
           },
         )
         .join("\n");
@@ -451,7 +538,7 @@ export const DeploymentsPage: React.FC = () => {
                       </span>
                       <button
                         type="button"
-                        onClick={e => handleCopy(dep.id, e)}
+                        onClick={e => void handleCopy(dep.id, e)}
                         title="Copy Deployment ID"
                         className="text-outline hover:text-on-surface transition-colors cursor-pointer"
                       >

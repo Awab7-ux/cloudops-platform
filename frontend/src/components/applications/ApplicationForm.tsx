@@ -30,6 +30,17 @@ interface ApplicationFormProps {
   onSaved: (name: string, created: boolean) => void;
 }
 
+/**
+ * Function: ApplicationForm
+ * Purpose: Validate and submit application create or edit data.
+ *
+ * Args:
+ *   initialApplication: Existing record for edit mode, or null for create mode.
+ *   onCancel: Callback that closes the form without saving.
+ *   onSaved: Callback invoked after the API confirms a successful save.
+ * Returns:
+ *   A controlled application form with field and request error feedback.
+ */
 export function ApplicationForm({ initialApplication, onCancel, onSaved }: ApplicationFormProps) {
   const [values, setValues] = useState<Values>({
     name: initialApplication?.name ?? '',
@@ -43,12 +54,14 @@ export function ApplicationForm({ initialApplication, onCancel, onSaved }: Appli
   const submittingRef = useRef(false);
   const editing = initialApplication !== undefined;
 
+  /** Function: setField. Purpose: Update one form field and clear its validation error. */
   const setField = <K extends Field>(field: K, value: Values[K]) => {
     setValues(current => ({ ...current, [field]: value }));
     setErrors(current => ({ ...current, [field]: undefined }));
     setFormError('');
   };
 
+  /** Function: submit. Purpose: Validate and send the create or update request. */
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submittingRef.current) return;

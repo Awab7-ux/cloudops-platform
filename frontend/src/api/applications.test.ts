@@ -9,7 +9,16 @@ import {
 } from './applications';
 import { ApiError } from './client';
 
-// WHY: deterministic JSON responses keep client contract checks independent of a server.
+/**
+ * Function: jsonResponse
+ * Purpose: Build a JSON HTTP response for API client tests.
+ *
+ * Args:
+ *   body: Value serialized as the response body.
+ *   status: HTTP status code.
+ * Returns:
+ *   A Fetch Response with JSON content type.
+ */
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -17,6 +26,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Function: applicationResponse. Purpose: Build a valid application wire record. */
 function applicationResponse(id: string, name: string) {
   return {
     id,

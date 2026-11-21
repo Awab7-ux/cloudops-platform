@@ -41,7 +41,16 @@ const summary: SummaryResponse = {
   generated_at: '2026-01-01T00:00:00Z',
 };
 
-// WHY: stable records make ordering, pagination, and form assertions readable.
+/**
+ * Function: application
+ * Purpose: Build an application API record for page tests.
+ *
+ * Args:
+ *   id: Numeric fixture identifier.
+ *   overrides: Optional record fields that replace fixture defaults.
+ * Returns:
+ *   A complete typed application record.
+ */
 function application(id: number, overrides: Partial<Application> = {}): Application {
   return {
     id: `app-${id}`,
@@ -55,12 +64,20 @@ function application(id: number, overrides: Partial<Application> = {}): Applicat
   };
 }
 
-// WHY: the API mock returns the same envelope as the real paginated endpoint.
+/** Function: page. Purpose: Build a backend-style application page for tests. */
 function page(items: Application[], total = items.length, limit = 10, offset = 0): ApplicationPage {
   return { items, total, limit, offset };
 }
 
-// WHY: each test starts from a predictable first page and clean mock history.
+/**
+ * Function: renderApplications
+ * Purpose: Mount the page with a controlled initial application response.
+ *
+ * Args:
+ *   initialPage: API page returned to the first list request.
+ * Returns:
+ *   Testing Library render helpers.
+ */
 function renderApplications(initialPage = page([application(1)])) {
   vi.mocked(listApplications).mockResolvedValue(initialPage);
   return render(<MemoryRouter><ApplicationsPage /></MemoryRouter>);

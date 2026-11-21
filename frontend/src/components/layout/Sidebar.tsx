@@ -4,6 +4,13 @@ import { useApi } from '../../context/ApiContext.tsx';
 
 const CLOUDOPS_LOGO = "https://lh3.googleusercontent.com/aida/AEtjO1U7e4_vnJ2MRRyDZ03tkDYL2C-GIAMTTZcrrRezZJS-wlyiGZMmtyhS-2f0qLIrAAS-BRQ-N3Gn0YOZUOne5Mxy2ZPorTwL31868euAS8yaAQNG93nlVfV3tfPfqLr-LkFZtJ-rlbD6gqaKp1Y4l2IBLcImxT-BMlQxo3zxsCdWQueIfBSxtrvbW9Ho9OoyTLomSkxqpOOlGFKgA5mktyRmL7uZh84mUGXgx3FHpuGkhVvTgLVvAgaTUiIS";
 
+/**
+ * Function: Sidebar
+ * Purpose: Render navigation links and current backend connection status.
+ *
+ * Returns:
+ *   The application sidebar with route links and a health refresh action.
+ */
 export const Sidebar: React.FC = () => {
   const { health, version, isProbing, refreshProbes } = useApi();
   const location = useLocation();

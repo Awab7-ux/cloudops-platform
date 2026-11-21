@@ -28,6 +28,7 @@ const application: Application = {
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z',
 };
 
+/** Function: renderDetail. Purpose: Mount the application detail route in memory. */
 function renderDetail() {
   return render(
     <MemoryRouter initialEntries={['/applications/app-1']}>

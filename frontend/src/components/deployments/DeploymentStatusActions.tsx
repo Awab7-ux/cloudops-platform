@@ -16,6 +16,16 @@ interface DeploymentStatusActionsProps {
 }
 
 // WHY: one action component keeps list and details transitions and confirmation behavior consistent.
+/**
+ * Function: DeploymentStatusActions
+ * Purpose: Present only backend-permitted deployment lifecycle actions.
+ *
+ * Args:
+ *   status: Current deployment state.
+ *   onTransition: Callback that submits a confirmed next state.
+ * Returns:
+ *   Lifecycle action buttons and a confirmation dialog for risky transitions.
+ */
 export function DeploymentStatusActions({ status, onTransition }: DeploymentStatusActionsProps) {
   const [confirmStatus, setConfirmStatus] = useState<DeploymentStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,6 +38,7 @@ export function DeploymentStatusActions({ status, onTransition }: DeploymentStat
   useEffect(() => {
     if (!confirmStatus) return undefined;
     dialogRef.current?.focus();
+    /** Function: handleKeyDown. Purpose: Close the transition dialog on Escape. */
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -55,6 +66,7 @@ export function DeploymentStatusActions({ status, onTransition }: DeploymentStat
   }, [confirmStatus]);
 
   // WHY: mutations are serialized locally so repeated clicks cannot submit duplicate transitions.
+  /** Function: submit. Purpose: Apply a confirmed deployment transition. */
   const submit = async (target: DeploymentStatus) => {
     if (busy) return;
     setBusy(true);

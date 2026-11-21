@@ -20,6 +20,17 @@ const log: LogRecord = {
   message: 'worker restarted', source: 'worker', created_at: '2026-01-01T00:00:00Z',
 };
 
+/**
+ * Function: page
+ * Purpose: Build a paginated log response for page tests.
+ *
+ * Args:
+ *   items: Log records returned in the current page.
+ *   total: Total matching records.
+ *   offset: Number of matching records skipped.
+ * Returns:
+ *   A typed log page response.
+ */
 function page(items: LogRecord[], total = items.length, offset = 0): LogPage {
   return { items, total, limit: 50, offset };
 }

@@ -5,16 +5,27 @@ import type { Application, LogLevel, LogRecord } from '../api/types';
 
 const LOG_PAGE_SIZE = 50;
 
+/** Function: apiLevel. Purpose: Convert a display filter to the backend log level. */
 function apiLevel(level: string): LogLevel | undefined {
   if (level === 'ALL') return undefined;
   return level === 'WARN' ? 'warning' : level.toLowerCase() as LogLevel;
 }
 
+/** Function: displayLevel. Purpose: Format an API log level for table display. */
 function displayLevel(level: LogLevel): 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' {
   if (level === 'warning') return 'WARN';
   return level.toUpperCase() as 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 }
 
+/**
+ * Function: LogsPage
+ * Purpose: Browse, filter, refresh, and export backend log records.
+ *
+ * Returns:
+ *   A searchable log view with live polling, pagination, and API error states.
+ * Side effects:
+ *   Fetches application and log pages and starts/stops the polling interval.
+ */
 export const LogsPage: React.FC = () => {
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -45,6 +56,7 @@ export const LogsPage: React.FC = () => {
   const atLatestRef = useRef(true);
   const latestLogIdRef = useRef<string | null>(null);
 
+  // Function: requestOptions memo callback. Purpose: Build the active log API filters.
   const requestOptions = useMemo(() => {
     const level = apiLevel(selectedLevel);
     return {
@@ -107,6 +119,12 @@ export const LogsPage: React.FC = () => {
     latestLogIdRef.current = latestLogId;
   }, [logs, loading, requestOptionsKey]);
 
+  /**
+   * Function: loadLogs
+   * Purpose: Fetch the first page for the selected filters.
+   * Side effects:
+   *   Updates log, total, loading, and error state; ignores stale requests.
+   */
   const loadLogs = useCallback(async () => {
     const sequence = ++loadSequence.current;
     setLoading(true);
@@ -136,6 +154,12 @@ export const LogsPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [isLive]);
 
+  /**
+   * Function: loadMoreLogs
+   * Purpose: Append the next page when the log viewport reaches its end.
+   * Side effects:
+   *   Fetches and appends records while preventing overlapping page requests.
+   */
   const loadMoreLogs = async () => {
     if (loading || loadingMoreRef.current || logs.length >= total) return;
     const sequence = loadSequence.current;
@@ -176,6 +200,12 @@ export const LogsPage: React.FC = () => {
     logLevelCounts.debug,
   );
 
+  /**
+   * Function: handleExportJson
+   * Purpose: Download the currently loaded and filtered log records as JSON.
+   * Side effects:
+   *   Starts a browser download containing the visible filtered records.
+   */
   const handleExportJson = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(filteredLogs, null, 2));
     const dlAnchorElem = document.createElement('a');
@@ -184,6 +214,15 @@ export const LogsPage: React.FC = () => {
     dlAnchorElem.click();
   };
 
+  /**
+   * Function: handleLogScroll
+   * Purpose: Track whether the viewport is at the newest log and load more at the end.
+   *
+   * Args:
+   *   event: Scroll event from the log viewport.
+   * Side effects:
+   *   Updates latest-position tracking and may request the next log page.
+   */
   const handleLogScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
     atLatestRef.current = element.scrollTop <= 24;

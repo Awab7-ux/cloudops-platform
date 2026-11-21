@@ -19,6 +19,16 @@ const record: LogRecord = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+/**
+ * Function: respond
+ * Purpose: Stub fetch with a JSON response for log client tests.
+ *
+ * Args:
+ *   body: Response payload to serialize.
+ *   status: HTTP response status.
+ * Returns:
+ *   The installed fetch mock for request assertions.
+ */
 function respond(body: unknown, status = 200) {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), {
     status,

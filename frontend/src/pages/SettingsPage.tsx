@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
 import { useApi } from '../context/ApiContext';
-import { API_BASE_URL_ENV_VAR, DEFAULT_API_BASE_URL } from '../api/client';
+import { API_BASE_URL_ENV_VAR } from '../api/client';
+import { getDefaultApiBaseUrl } from '../utils/apiHealth';
 
+/**
+ * Function: SettingsPage
+ * Purpose: Configure the API origin and backend health probe interval.
+ *
+ * Returns:
+ *   The platform settings page with live API probe diagnostics.
+ * Side effects:
+ *   Updates the shared API origin and polling interval when the user applies settings.
+ */
 export const SettingsPage: React.FC = () => {
   const {
     baseUrl,
@@ -16,24 +26,36 @@ export const SettingsPage: React.FC = () => {
 
   const [inputUrl, setInputUrl] = useState<string>(baseUrl);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
-  const [compactDensity, setCompactDensity] = useState<boolean>(false);
-  const [soundAlerts, setSoundAlerts] = useState<boolean>(false);
+  const defaultApiBaseUrl = getDefaultApiBaseUrl();
 
+  /**
+   * Function: handleSaveUrl
+   * Purpose: Apply the API URL entered in the settings form.
+   *
+   * Args:
+   *   e: Form submit event.
+   * Side effects:
+   *   Updates the shared API origin and shows temporary confirmation feedback.
+   */
   const handleSaveUrl = (e: React.FormEvent) => {
     e.preventDefault();
     setBaseUrl(inputUrl);
     setSaveFeedback(`Target backend API updated to ${inputUrl}`);
-    refreshProbes();
     setTimeout(() => setSaveFeedback(null), 3000);
   };
 
+  /**
+   * Function: handleResetDefaults
+   * Purpose: Restore the environment or built-in API origin and default polling.
+   * Side effects:
+   *   Updates API and polling settings and shows temporary confirmation feedback.
+   */
   const handleResetDefaults = () => {
-    const defaultUrl = DEFAULT_API_BASE_URL;
+    const defaultUrl = defaultApiBaseUrl;
     setInputUrl(defaultUrl);
     setBaseUrl(defaultUrl);
     setPollingInterval(10000);
     setSaveFeedback('Restored default configuration settings.');
-    refreshProbes();
     setTimeout(() => setSaveFeedback(null), 3000);
   };
 
@@ -48,7 +70,7 @@ export const SettingsPage: React.FC = () => {
           </span>
         </div>
         <p className="text-sm text-slate-500 mt-1">
-          Configure backend API endpoints, probe health intervals, chaos fault injection, and telemetry preferences.
+          Configure the backend API endpoint and the health probe interval used by this frontend.
         </p>
       </div>
 
@@ -71,7 +93,7 @@ export const SettingsPage: React.FC = () => {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Backend API Endpoint Configuration</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Target URL configured via <code className="font-mono text-indigo-600">{API_BASE_URL_ENV_VAR}</code> (Default: <code className="font-mono">{DEFAULT_API_BASE_URL}</code>).
+              Target URL configured via <code className="font-mono text-indigo-600">{API_BASE_URL_ENV_VAR}</code> (Default: <code className="font-mono">{defaultApiBaseUrl}</code>).
             </p>
           </div>
           <span className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -89,7 +111,7 @@ export const SettingsPage: React.FC = () => {
                 type="text"
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
-                placeholder={DEFAULT_API_BASE_URL}
+                placeholder={defaultApiBaseUrl}
                 aria-label="Backend Base URL"
                 className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
               />
@@ -121,7 +143,9 @@ export const SettingsPage: React.FC = () => {
         <div className="mt-4 p-4 rounded-xl bg-slate-900 text-slate-200 text-xs font-mono space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="font-semibold text-slate-300">Live Probe Diagnostics</span>
-            <span className="text-[10px] text-slate-500">Auto-refresh active</span>
+            <span className="text-[10px] text-slate-500">
+              {pollingInterval > 0 ? `Auto-refresh every ${pollingInterval / 1000}s` : 'Auto-refresh paused'}
+            </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -240,43 +264,7 @@ export const SettingsPage: React.FC = () => {
         </p>
       </div>
 
-      {/* 4. Display & Preference Toggles */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">Display &amp; Notification Preferences</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Customize dashboard density and alert chime behavior.</p>
-        </div>
-
-        <div className="space-y-3">
-          <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200">
-            <div>
-              <span className="text-sm font-medium text-slate-900 block">Compact Table Density</span>
-              <span className="text-xs text-slate-500">Reduce vertical padding across node and service matrices</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={compactDensity}
-              onChange={(e) => setCompactDensity(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-          </label>
-
-          <label className="flex items-center justify-between p-3 rounded-lg border border-slate-200">
-            <div>
-              <span className="text-sm font-medium text-slate-900 block">Critical Incident Audio Chimes</span>
-              <span className="text-xs text-slate-500">Play subtle audible alert when P0 incident is triggered</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={soundAlerts}
-              onChange={(e) => setSoundAlerts(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-          </label>
-        </div>
-      </div>
-
-      {/* 5. Reset Defaults */}
+      {/* Reset supported settings to their defaults. */}
       <div className="flex justify-end pt-2">
         <button
           onClick={handleResetDefaults}

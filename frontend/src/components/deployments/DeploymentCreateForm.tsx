@@ -14,11 +14,23 @@ type CreateField = 'version' | 'commit_sha';
 type CreateErrors = Partial<Record<CreateField, string>>;
 
 // WHY: server field paths are associated only with inputs rendered by this form.
+/** Function: isCreateField. Purpose: Narrow API validation errors to form fields. */
 function isCreateField(field: string): field is CreateField {
   return field === 'version' || field === 'commit_sha';
 }
 
 // WHY: the form validates schema limits locally and maps API errors without losing input.
+/**
+ * Function: DeploymentCreateForm
+ * Purpose: Validate and submit a deployment for the selected application.
+ *
+ * Args:
+ *   applicationId: Parent application identifier.
+ *   onCancel: Callback that closes the create form.
+ *   onCreated: Callback invoked after the API confirms creation.
+ * Returns:
+ *   A deployment form with validation and request error feedback.
+ */
 export function DeploymentCreateForm({
   applicationId,
   onCancel,
@@ -32,6 +44,7 @@ export function DeploymentCreateForm({
   const submittingRef = useRef(false);
 
   // WHY: validation mirrors DeploymentCreate constraints and prevents malformed requests.
+  /** Function: validate. Purpose: Check required deployment fields before submission. */
   const validate = (): CreateErrors => {
     const next: CreateErrors = {};
     const normalizedVersion = version.trim();
@@ -45,6 +58,7 @@ export function DeploymentCreateForm({
   };
 
   // WHY: submission is guarded against repeat clicks and sends only the schema's supported fields.
+  /** Function: submit. Purpose: Create the deployment and report the API result. */
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submittingRef.current) return;

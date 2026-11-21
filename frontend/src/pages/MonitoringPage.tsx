@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getMetrics } from '../api/metrics';
 import type { MetricSample, MetricsSnapshot } from '../api/metrics';
@@ -6,6 +6,17 @@ import { useApi } from '../context/ApiContext';
 
 type LoadState = 'loading' | 'success' | 'error';
 
+/**
+ * Function: sumMetric
+ * Purpose: Sum finite values for a metric, optionally applying a label filter.
+ *
+ * Args:
+ *   samples: Parsed Prometheus samples.
+ *   name: Exact metric name to include.
+ *   predicate: Optional condition applied to each matching sample.
+ * Returns:
+ *   The sum of matching finite sample values.
+ */
 function sumMetric(
   samples: MetricSample[],
   name: string,
@@ -16,30 +27,52 @@ function sumMetric(
     .reduce((total, sample) => total + sample.value, 0);
 }
 
+/** Function: metricValue. Purpose: Read one unlabeled aggregate metric sample. */
 function metricValue(samples: MetricSample[], name: string): number | undefined {
   return samples.find(sample => sample.name === name && Object.keys(sample.labels).length === 0)?.value;
 }
 
+/** Function: valueLabel. Purpose: Format a metric value or its loading/error state. */
 function valueLabel(value: number | undefined, state: LoadState): string {
   if (state === 'loading') return 'Loading…';
   if (state === 'error' || value === undefined || !Number.isFinite(value)) return 'Unavailable';
   return new Intl.NumberFormat().format(value);
 }
 
+/**
+ * Function: MonitoringPage
+ * Purpose: Display measured API metrics and backend health diagnostics.
+ *
+ * Returns:
+ *   The monitoring page with live metric values and explicit unavailable states.
+ * Side effects:
+ *   Fetches the backend metrics endpoint and refreshes on user request.
+ */
 export const MonitoringPage: React.FC = () => {
   const { health, version, isProbing, refreshProbes, baseUrl } = useApi();
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
   const [metricsState, setMetricsState] = useState<LoadState>('loading');
   const [metricsError, setMetricsError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const metricsRequestSequence = useRef(0);
 
+  /**
+   * Function: loadMetrics
+   * Purpose: Fetch and store the current backend metrics snapshot.
+   * Side effects:
+   *   Updates metric loading, error, and data state; ignores stale requests.
+   */
   const loadMetrics = useCallback(async () => {
+    const requestId = ++metricsRequestSequence.current;
     setMetricsState('loading');
     setMetricsError('');
     try {
-      setSnapshot(await getMetrics());
+      const result = await getMetrics();
+      if (requestId !== metricsRequestSequence.current) return;
+      setSnapshot(result);
       setMetricsState('success');
     } catch (error: unknown) {
+      if (requestId !== metricsRequestSequence.current) return;
       setSnapshot(null);
       setMetricsError(error instanceof Error ? error.message : 'Unable to load backend metrics.');
       setMetricsState('error');
@@ -48,6 +81,7 @@ export const MonitoringPage: React.FC = () => {
 
   useEffect(() => {
     void loadMetrics();
+    return () => { metricsRequestSequence.current += 1; };
   }, [loadMetrics, refresh]);
 
   const samples = snapshot?.samples ?? [];

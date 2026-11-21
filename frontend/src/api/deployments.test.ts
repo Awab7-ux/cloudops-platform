@@ -10,7 +10,15 @@ import {
 } from './deployments';
 import type { Deployment } from './types';
 
-// WHY: stable timestamps make exact API response assertions deterministic.
+/**
+ * Function: deployment
+ * Purpose: Build a stable deployment API response for client tests.
+ *
+ * Args:
+ *   status: Lifecycle status assigned to the response.
+ * Returns:
+ *   A typed deployment fixture with deterministic timestamps.
+ */
 function deployment(status: Deployment['status'] = 'pending'): Deployment {
   return {
     id: 'deploy/1',
@@ -24,7 +32,16 @@ function deployment(status: Deployment['status'] = 'pending'): Deployment {
   };
 }
 
-// WHY: a JSON fetch stub exercises request serialization without network access.
+/**
+ * Function: mockSuccess
+ * Purpose: Stub fetch with a JSON response for deployment client tests.
+ *
+ * Args:
+ *   body: Response body to serialize, ignored for status 204.
+ *   status: HTTP response status.
+ * Returns:
+ *   The installed fetch mock for request assertions.
+ */
 function mockSuccess(body: unknown, status = 200) {
   const fetchMock = vi.fn().mockResolvedValue(
     new Response(status === 204 ? null : JSON.stringify(body), {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { MicroserviceItem } from '../data/servicesData.ts';
+import type { ApplicationDisplayItem } from '../types/applicationDisplay';
 import { ApiError } from '../api/client';
 import { deleteApplication, listApplications } from '../api/applications';
 import { getSummary } from '../api/summary';
@@ -8,6 +8,15 @@ import type { Application, ApplicationStatus, Environment } from '../api/types';
 import type { SummaryResponse } from '../api/types';
 import { ApplicationForm } from '../components/applications/ApplicationForm';
 
+/**
+ * Function: ApplicationsPage
+ * Purpose: List and manage applications using the backend API.
+ *
+ * Returns:
+ *   The Applications page with search, filters, pagination, and CRUD actions.
+ * Side effects:
+ *   Loads application and summary data and updates local UI state after actions.
+ */
 export const ApplicationsPage: React.FC = () => {
   const navigate = useNavigate();
   const [applications, setApplications] = useState<Application[]>([]);
@@ -23,7 +32,7 @@ export const ApplicationsPage: React.FC = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Selected service for slide-over drawer
-  const [selectedService, setSelectedService] = useState<MicroserviceItem | null>(null);
+  const [selectedService, setSelectedService] = useState<ApplicationDisplayItem | null>(null);
 
   // Application create and edit state
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -38,6 +47,13 @@ export const ApplicationsPage: React.FC = () => {
   // Action toasts
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  /**
+   * Function: loadApplications
+   * Purpose: Load the requested application page from the backend.
+   *
+   * Side effects:
+   *   Updates list, pagination, loading, and error state; ignores stale requests.
+   */
   const loadApplications = useCallback(async () => {
     const requestId = ++listRequestSequence.current;
     setLoading(true);
@@ -91,6 +107,15 @@ export const ApplicationsPage: React.FC = () => {
   useEffect(() => {
     if (!deleteTarget) return;
     deleteCancelButton.current?.focus();
+    /**
+     * Function: handleDialogKeyDown
+     * Purpose: Keep keyboard focus inside the application delete dialog.
+     *
+     * Args:
+     *   event: Keyboard event received while the dialog is open.
+     * Side effects:
+     *   Closes the dialog on Escape or wraps focus on Tab.
+     */
     const handleDialogKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !deleting) {
         setDeleteTarget(null);
@@ -116,9 +141,9 @@ export const ApplicationsPage: React.FC = () => {
   }, [deleteTarget, deleting]);
 
   const serviceRows = useMemo(() => applications.map(application => {
-    const environment: MicroserviceItem['environment'] = application.environment === 'production' ? 'Production' :
+    const environment: ApplicationDisplayItem['environment'] = application.environment === 'production' ? 'Production' :
       application.environment === 'staging' ? 'Staging' : 'Dev';
-    const health: MicroserviceItem['health'] = application.status === 'healthy' ? 'Healthy' :
+    const health: ApplicationDisplayItem['health'] = application.status === 'healthy' ? 'Healthy' :
       application.status === 'degraded' ? 'Degraded' :
         application.status === 'down' ? 'Down' : 'Unknown';
     return {
@@ -151,6 +176,15 @@ export const ApplicationsPage: React.FC = () => {
     };
   }), [applications]);
 
+  /**
+   * Function: showToast
+   * Purpose: Show a short-lived success message after an application action.
+   *
+   * Args:
+   *   msg: Message to announce in the page.
+   * Side effects:
+   *   Updates the toast state and schedules it to clear after 3.5 seconds.
+   */
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
@@ -173,27 +207,67 @@ export const ApplicationsPage: React.FC = () => {
   const hasActiveFilters = searchTerm.length > 0 || envFilter !== 'all' || statusFilter !== 'all';
   const paginatedServices = filteredServices;
 
+  /**
+   * Function: openCreateForm
+   * Purpose: Open the application form in create mode.
+   * Side effects:
+   *   Clears the selected application and opens the form modal.
+   */
   const openCreateForm = () => {
     setFormApplication(null);
     setIsRegisterModalOpen(true);
   };
 
+  /**
+   * Function: openEditForm
+   * Purpose: Open the application form for an existing application.
+   *
+   * Args:
+   *   application: Application whose editable fields should be loaded.
+   * Side effects:
+   *   Selects the application and opens the form modal.
+   */
   const openEditForm = (application: Application) => {
     setFormApplication(application);
     setIsRegisterModalOpen(true);
   };
 
+  /**
+   * Function: closeForm
+   * Purpose: Close the application form without changing application data.
+   * Side effects:
+   *   Clears the selected application and closes the form modal.
+   */
   const closeForm = () => {
     setIsRegisterModalOpen(false);
     setFormApplication(undefined);
   };
 
+  /**
+   * Function: saveForm
+   * Purpose: Refresh the list after an application create or update succeeds.
+   *
+   * Args:
+   *   name: Saved application's name for the success message.
+   *   created: Whether the action created a new application.
+   * Side effects:
+   *   Announces success, closes the form, and reloads the current list.
+   */
   const saveForm = (name: string, created: boolean) => {
     setAnnouncement(`Application ${name} ${created ? 'created' : 'updated'}.`);
     closeForm();
     setRefresh(value => value + 1);
   };
 
+  /**
+   * Function: confirmDelete
+   * Purpose: Delete the selected application after user confirmation.
+   *
+   * Returns:
+   *   A promise that settles after the delete request and list refresh.
+   * Side effects:
+   *   Sends a delete request and updates dialog, loading, and page state.
+   */
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     const target = deleteTarget;
@@ -389,7 +463,7 @@ export const ApplicationsPage: React.FC = () => {
                 setSearchTerm(e.target.value);
                 setOffset(0);
               }}
-              placeholder="Filter by name, tag, port, namespace..."
+              placeholder="Filter by application name, ID, or description..."
               className="w-full bg-surface-container-low text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm pl-9 pr-space-md py-1.5 rounded-lg focus:outline-none focus:bg-surface-container-lowest shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all"
             />
           </div>

@@ -7,6 +7,15 @@ import { listDeployments } from '../api/deployments';
 import { listApplicationLogs } from '../api/logs';
 import type { Application, Deployment, LogRecord } from '../api/types';
 
+/**
+ * Function: ApplicationDetailPage
+ * Purpose: Show an application's backend fields, deployments, and logs.
+ *
+ * Returns:
+ *   Application details with independent loading and unavailable states for related data.
+ * Side effects:
+ *   Fetches the application and its recent deployments and logs.
+ */
 export const ApplicationDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { health, version } = useApi();

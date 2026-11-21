@@ -10,6 +10,18 @@ interface GlobalSearchModalProps {
   onClose: () => void;
 }
 
+/**
+ * Function: GlobalSearchModal
+ * Purpose: Search loaded applications, recent failed deployments, and alerts.
+ *
+ * Args:
+ *   isOpen: Whether the search dialog should be rendered.
+ *   onClose: Callback that closes the dialog.
+ * Returns:
+ *   A modal with live API-backed search results, or null while closed.
+ * Side effects:
+ *   Fetches search data when opened and removes its keyboard listener on cleanup.
+ */
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, onClose }) => {
   const [query, setQuery] = useState('');
   const [applications, setApplications] = useState<Application[]>([]);
@@ -19,15 +31,16 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
   const navigate = useNavigate();
 
   useEffect(() => {
+    /**
+     * Function: handleKeyDown
+     * Purpose: Close the open search dialog when Escape is pressed.
+     *
+     * Args:
+     *   e: Keyboard event received from the window.
+     * Side effects:
+     *   Calls onClose when the dialog is open and Escape is pressed.
+     */
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        if (isOpen) {
-          onClose();
-        } else {
-          // Trigger open
-        }
-      }
       if (e.key === 'Escape' && isOpen) {
         onClose();
       }
@@ -76,6 +89,15 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
       || alert.application_name.toLowerCase().includes(q)
   );
 
+  /**
+   * Function: handleSelect
+   * Purpose: Navigate to a selected search result and close the modal.
+   *
+   * Args:
+   *   path: Application route for the selected result.
+   * Side effects:
+   *   Changes the current route and invokes the close callback.
+   */
   const handleSelect = (path: string) => {
     navigate(path);
     onClose();

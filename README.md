@@ -95,8 +95,11 @@ Applications CRUD and details, application-scoped deployments and lifecycle
 transitions, the overview summary, logs, alerts, and backend metrics use real API
 routes. Alert acknowledgement, resolution, playbooks, notification channels,
 incident history, Kubernetes inventory, and cluster resource time series are
-not exposed by the backend and appear as unavailable. The API client reads its
-base URL only from `VITE_API_BASE_URL`.
+not exposed by the backend and appear as unavailable. The Alerts page supports
+backend severity/type filters and pagination. The header alert count and
+notification popover read the derived alert feed and refresh every 30 seconds.
+The UI does not present an authenticated user identity because the API has no
+authentication. The API client reads its base URL only from `VITE_API_BASE_URL`.
 
 Run the frontend from `frontend/` in PowerShell:
 
@@ -114,7 +117,9 @@ uses the `VITE_API_BASE_URL` build argument.
 Run frontend checks from `frontend/`:
 
 ```powershell
-python -m pytest -q
+npm test
+npm run lint
+npm run build
 ```
 
 ## Requirements
@@ -204,10 +209,17 @@ Invoke-RestMethod http://127.0.0.1:8000/version
 
 ## Tests
 
-Install the development dependencies as shown above, then use the `Run the
-tests` command in the backend architecture section. The tests check the
-response bodies, JSON content type, success status codes, environment-based
-configuration, and the not-found status for an unknown route.
+Install the development dependencies as shown above, then run backend tests
+from the repository root and frontend checks from `frontend/`:
+
+```powershell
+python -m pytest -q tests
+Push-Location frontend
+npm test
+npm run lint
+npm run build
+Pop-Location
+```
 
 ## GitHub Actions CI
 

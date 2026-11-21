@@ -14,6 +14,7 @@ vi.mock('../../context/ApiContext.tsx', () => ({
 }));
 
 // WHY: MemoryRouter provides route context without starting API calls or browser navigation.
+/** Function: renderSidebar. Purpose: Mount the sidebar with its required router context. */
 function renderSidebar() {
   return render(
     <MemoryRouter>

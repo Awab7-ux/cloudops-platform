@@ -1,14 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
+import {resolve} from 'node:path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+/**
+ * Function: createViteConfig
+ * Purpose: Configure the frontend build, module aliases, and local dev server.
+ *
+ * Returns:
+ *   The Vite configuration used for development and production builds.
+ */
+function createViteConfig() {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': resolve(import.meta.dirname, '.'),
       },
     },
     server: {
@@ -19,4 +26,6 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
-});
+}
+
+export default defineConfig(createViteConfig);

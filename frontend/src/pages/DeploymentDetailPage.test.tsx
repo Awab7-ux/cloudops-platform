@@ -24,7 +24,15 @@ vi.mock('../api/deployments', () => ({
 }));
 vi.mock('../api/applications', () => ({ getApplication: vi.fn() }));
 
-// WHY: complete API records keep detail-page tests aligned with the backend response model.
+/**
+ * Function: deployment
+ * Purpose: Build a complete deployment record for detail-page tests.
+ *
+ * Args:
+ *   status: Lifecycle state to place on the fixture.
+ * Returns:
+ *   A typed deployment response.
+ */
 function deployment(status: DeploymentStatus = 'pending'): Deployment {
   return {
     id: 'dep-1',
@@ -43,7 +51,15 @@ const parentApplication: Application = {
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 };
 
-// WHY: mounting the real route exercises route params and generated back-link destinations.
+/**
+ * Function: renderDetails
+ * Purpose: Mount a deployment detail route with a selected URL.
+ *
+ * Args:
+ *   path: Initial deployment detail route.
+ * Returns:
+ *   Testing Library render helpers.
+ */
 function renderDetails(path = '/deployments/dep-1') {
   return render(
     <MemoryRouter initialEntries={[path]}>

@@ -18,32 +18,39 @@ import type {
   SummaryResponse,
 } from './types';
 
+/** Function: isRecord. Purpose: Narrow an unknown value to a plain record. @param value Candidate value. @returns True for a non-null, non-array object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Function: isString. Purpose: Narrow an unknown value to a string. @param value Candidate value. @returns True when value is a string. */
 function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
 
+/** Function: isTimestamp. Purpose: Check for a parseable timestamp string. @param value Candidate value. @returns True when the string parses to a finite date. */
 function isTimestamp(value: unknown): value is string {
   return isString(value) && Number.isFinite(Date.parse(value));
 }
 
+/** Function: isNullableString. Purpose: Accept a string or null. @param value Candidate value. @returns True for either supported value. */
 function isNullableString(value: unknown): value is string | null {
   return value === null || isString(value);
 }
 
+/** Function: isNullableTimestamp. Purpose: Accept a timestamp string or null. @param value Candidate value. @returns True when null or a valid timestamp. */
 function isNullableTimestamp(value: unknown): value is string | null {
   return value === null || isTimestamp(value);
 }
 
+/** Function: isCountMap. Purpose: Validate a map of non-negative integer counts. @param value Candidate map. @returns True when every value is a non-negative integer. */
 function isCountMap(value: unknown): value is Record<string, number> {
   return isRecord(value) && Object.values(value).every(
     entry => typeof entry === 'number' && Number.isInteger(entry) && entry >= 0,
   );
 }
 
+/** Function: isPage. Purpose: Validate pagination metadata and every item. @param value Candidate page. @param isItem Validator for one item. @returns True when the page envelope and all items are valid. */
 function isPage<T>(value: unknown, isItem: (item: unknown) => item is T): value is {
   items: T[];
   total: number;
@@ -64,6 +71,7 @@ function isPage<T>(value: unknown, isItem: (item: unknown) => item is T): value 
     && value.offset >= 0;
 }
 
+/** Function: isApplication. Purpose: Validate an application API record. @param value Candidate response value. @returns True when every required application field matches the contract. */
 export function isApplication(value: unknown): value is Application {
   return isRecord(value)
     && isString(value.id)
@@ -75,10 +83,12 @@ export function isApplication(value: unknown): value is Application {
     && isTimestamp(value.updated_at);
 }
 
+/** Function: isApplicationPage. Purpose: Validate a paginated application response. @param value Candidate page. @returns True when the envelope and all application records are valid. */
 export function isApplicationPage(value: unknown): value is ApplicationPage {
   return isPage(value, isApplication);
 }
 
+/** Function: isDeployment. Purpose: Validate a deployment API record. @param value Candidate response value. @returns True when required fields and lifecycle status match the contract. */
 export function isDeployment(value: unknown): value is Deployment {
   return isRecord(value)
     && isString(value.id)
@@ -91,10 +101,12 @@ export function isDeployment(value: unknown): value is Deployment {
     && isTimestamp(value.created_at);
 }
 
+/** Function: isDeploymentPage. Purpose: Validate a paginated deployment response. @param value Candidate page. @returns True when the envelope and all deployment records are valid. */
 export function isDeploymentPage(value: unknown): value is DeploymentPage {
   return isPage(value, isDeployment);
 }
 
+/** Function: isLogRecord. Purpose: Validate a log record from the backend. @param value Candidate response value. @returns True when all required log fields are valid. */
 export function isLogRecord(value: unknown): value is LogRecord {
   return isRecord(value)
     && isString(value.id)
@@ -106,10 +118,12 @@ export function isLogRecord(value: unknown): value is LogRecord {
     && isTimestamp(value.created_at);
 }
 
+/** Function: isLogPage. Purpose: Validate a paginated log response. @param value Candidate page. @returns True when the envelope and all log records are valid. */
 export function isLogPage(value: unknown): value is LogPage {
   return isPage(value, isLogRecord);
 }
 
+/** Function: isAlertRecord. Purpose: Validate a derived backend alert record. @param value Candidate response value. @returns True when alert type, severity, and fields match the contract. */
 export function isAlertRecord(value: unknown): value is AlertRecord {
   return isRecord(value)
     && isString(value.id)
@@ -122,6 +136,7 @@ export function isAlertRecord(value: unknown): value is AlertRecord {
     && isTimestamp(value.since);
 }
 
+/** Function: isAlertPage. Purpose: Validate alert items, pagination, and generation time. @param value Candidate page. @returns True when items, metadata, and max limit are valid. */
 export function isAlertPage(value: unknown): value is AlertPage {
   if (!isRecord(value)) return false;
   const generatedAt = value.generated_at;
@@ -132,6 +147,7 @@ export function isAlertPage(value: unknown): value is AlertPage {
     && limit <= 200;
 }
 
+/** Function: isSummaryResponse. Purpose: Validate aggregate summary data from the API. @param value Candidate response value. @returns True when counts and recent failures match the response contract. */
 export function isSummaryResponse(value: unknown): value is SummaryResponse {
   if (!isRecord(value)
     || !isRecord(value.applications)

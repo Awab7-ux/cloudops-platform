@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,7 +30,15 @@ vi.mock('../api/deployments', () => ({
   updateDeploymentStatus: vi.fn(),
 }));
 
-// WHY: shared fixtures keep the API mocks aligned with the backend wire format.
+/**
+ * Function: app
+ * Purpose: Build an application API record for deployment page tests.
+ *
+ * Args:
+ *   id: Application identifier used by the deployment fixture.
+ * Returns:
+ *   A complete application record matching the backend response shape.
+ */
 function app(id: string): Application {
   return {
     id, name: `Application ${id}`, description: null, environment: 'development',
@@ -38,7 +46,16 @@ function app(id: string): Application {
   };
 }
 
-// WHY: table rows use complete API records instead of frontend-only demo fields.
+/**
+ * Function: deploy
+ * Purpose: Build a complete deployment API record for page tests.
+ *
+ * Args:
+ *   status: Lifecycle status to place on the deployment.
+ *   id: Deployment identifier.
+ * Returns:
+ *   A deployment record matching the backend response shape.
+ */
 function deploy(status: Deployment['status'] = 'pending', id = 'dep-1'): Deployment {
   return {
     id, application_id: 'app-1', version: 'v1.0.0', commit_sha: null, status,
@@ -46,12 +63,23 @@ function deploy(status: Deployment['status'] = 'pending', id = 'dep-1'): Deploym
   };
 }
 
-// WHY: the API page envelope makes total and offset assertions realistic.
+/**
+ * Function: deployPage
+ * Purpose: Build a deployment pagination response for tests.
+ *
+ * Args:
+ *   items: Deployment records in the current page.
+ *   total: Total matching records.
+ *   limit: Page size returned by the API.
+ *   offset: Number of records skipped.
+ * Returns:
+ *   A typed backend-style deployment page.
+ */
 function deployPage(items: Deployment[], total = items.length, limit = 10, offset = 0): DeploymentPage {
   return { items, total, limit, offset };
 }
 
-// WHY: the location probe exposes in-memory history state without real browser navigation.
+/** Function: LocationProbe. Purpose: Expose router location and history controls in tests. */
 function LocationProbe() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -64,7 +92,15 @@ function LocationProbe() {
   );
 }
 
-// WHY: one helper mounts both deployment routes while each test controls its own API responses.
+/**
+ * Function: renderRoutes
+ * Purpose: Mount the deployment page with in-memory routing for interaction tests.
+ *
+ * Args:
+ *   path: Initial location, including optional query parameters.
+ * Returns:
+ *   Testing Library render helpers.
+ */
 function renderRoutes(path = '/deployments') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -109,6 +145,54 @@ describe('DeploymentsPage', () => {
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('application=app-1'));
     await user.click(screen.getByRole('button', { name: 'History forward' }));
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('application=app-2'));
+  });
+
+  it('escapes commas and quotes in deployment CSV fields', async () => {
+    const application = { ...app('app-1'), name: 'Billing, "production" API' };
+    vi.mocked(listApplications).mockResolvedValue({ items: [application], total: 1, limit: 200, offset: 0 });
+    const blobs: Blob[] = [];
+    const createDescriptor = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const revokeDescriptor = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: (blob: Blob) => { blobs.push(blob); return 'blob:deployment-export'; },
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    try {
+      const user = userEvent.setup();
+      renderRoutes('/deployments?application=app-1');
+      expect(await screen.findByText('v1.0.0')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /Export Audit CSV/ }));
+
+      expect(await blobs[0].text()).toContain('"Billing, ""production"" API"');
+      expect(click).toHaveBeenCalledOnce();
+    } finally {
+      click.mockRestore();
+      if (createDescriptor) Object.defineProperty(URL, 'createObjectURL', createDescriptor);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (revokeDescriptor) Object.defineProperty(URL, 'revokeObjectURL', revokeDescriptor);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
+  });
+
+  it('reports clipboard permission failures instead of leaving an unhandled rejection', async () => {
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('Permission denied')) },
+    });
+
+    try {
+      renderRoutes('/deployments?application=app-1');
+      expect(await screen.findByText('v1.0.0')).toBeInTheDocument();
+      fireEvent.click(screen.getByTitle('Copy Deployment ID'));
+      expect(await screen.findByText('Clipboard access is unavailable in this browser.')).toBeInTheDocument();
+    } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('shows an empty application state with a link to Applications', async () => {

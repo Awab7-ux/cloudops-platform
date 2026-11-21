@@ -19,7 +19,17 @@ export interface ProbeResult<T = unknown> {
 }
 
 /**
- * Execute probe against an endpoint with timeout and latency timing.
+ * Function: executeProbe
+ * Purpose: Issue a JSON GET probe and measure its round-trip time.
+ *
+ * Args:
+ *   baseUrl: API origin used to build the request URL.
+ *   endpoint: Health endpoint path, with or without a leading slash.
+ *   timeoutMs: Maximum time allowed for the full response, including its body.
+ * Returns:
+ *   Probe status, response data when parseable, safe error text, and timing.
+ * Side effects:
+ *   Sends one GET request and aborts it when the timeout expires.
  */
 export async function executeProbe<T = unknown>(
   baseUrl: string,
@@ -41,15 +51,15 @@ export async function executeProbe<T = unknown>(
       },
       signal: controller.signal,
     });
-    clearTimeout(timer);
-    const duration = Math.round(performance.now() - startTime);
 
     let data: T | null = null;
     try {
       data = await response.json();
-    } catch {
+    } catch (error: unknown) {
+      if (controller.signal.aborted) throw error;
       data = null;
     }
+    const duration = Math.round(performance.now() - startTime);
 
     if (!response.ok) {
       return {
@@ -70,7 +80,6 @@ export async function executeProbe<T = unknown>(
       timestamp: new Date(),
     };
   } catch (err: unknown) {
-    clearTimeout(timer);
     const duration = Math.round(performance.now() - startTime);
     const errorMsg = err instanceof Error ? err.message : 'Network error';
 
@@ -78,9 +87,11 @@ export async function executeProbe<T = unknown>(
       ok: false,
       status: 0,
       data: null,
-      error: errorMsg.includes('abort') ? 'Connection timed out (>4s)' : `${errorMsg} (${fullUrl})`,
+      error: controller.signal.aborted ? `Connection timed out after ${timeoutMs} ms` : errorMsg,
       rttMs: duration,
       timestamp: new Date(),
     };
+  } finally {
+    clearTimeout(timer);
   }
 }

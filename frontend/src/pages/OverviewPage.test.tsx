@@ -1,9 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getSummary } from '../api/summary';
+import type { ProbeSnapshot } from '../context/ApiContext';
 import type { SummaryResponse } from '../api/types';
 import { OverviewPage } from './OverviewPage';
+
+const refreshProbes = vi.hoisted(() => vi.fn());
 
 vi.mock('../api/summary', () => ({ getSummary: vi.fn() }));
 vi.mock('../context/ApiContext.tsx', () => ({
@@ -12,7 +15,7 @@ vi.mock('../context/ApiContext.tsx', () => ({
     version: { status: 'success', data: { version: '2.0.0' }, rttMs: 9 },
     root: { status: 'success', data: { name: 'CloudOps' }, rttMs: 8 },
     isProbing: false,
-    refreshProbes: vi.fn(),
+    refreshProbes,
     lastChecked: new Date('2026-01-01T00:00:00Z'),
     baseUrl: 'https://api.example.test',
   }),
@@ -34,10 +37,17 @@ const summary: SummaryResponse = {
   generated_at: '2026-01-01T00:00:00Z',
 };
 
+const healthyProbes: ProbeSnapshot = {
+  health: { status: 'success', data: { status: 'ok' }, error: null, rttMs: 12, httpStatus: 200 },
+  version: { status: 'success', data: { version: '2.0.0' }, error: null, rttMs: 9, httpStatus: 200 },
+  root: { status: 'success', data: { name: 'CloudOps' }, error: null, rttMs: 8, httpStatus: 200 },
+};
+
 describe('OverviewPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(getSummary).mockResolvedValue(summary);
+    refreshProbes.mockResolvedValue(healthyProbes);
   });
 
   it('renders API summary counts and marks unsupported cluster metrics unavailable', async () => {
@@ -64,5 +74,16 @@ describe('OverviewPage', () => {
     expect((await screen.findAllByText('Unavailable', { exact: true })).length).toBeGreaterThan(0);
     expect(screen.queryByText('14 Active')).not.toBeInTheDocument();
     expect(screen.queryByText('38 Today')).not.toBeInTheDocument();
+  });
+
+  it('uses the completed health probe result instead of stale render state', async () => {
+    refreshProbes.mockResolvedValueOnce({
+      ...healthyProbes,
+      health: { status: 'error', data: null, error: 'Connection refused', rttMs: 2, httpStatus: 0 },
+    });
+    render(<OverviewPage />);
+    fireEvent.click(screen.getByText('Inspect Health'));
+
+    expect(await screen.findByText('GET /health failed: Connection refused')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,12 @@
 import React from 'react';
 
+/**
+ * Function: InfrastructurePage
+ * Purpose: Explain which infrastructure data the backend does not expose.
+ *
+ * Returns:
+ *   A transparent unavailable state for cluster inventory and Terraform state.
+ */
 export const InfrastructurePage: React.FC = () => (
   <div className="space-y-6">
     <div>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { resolveApiBaseUrl, resetConfiguredApiBaseUrl, setConfiguredApiBaseUrl } from '../api/client';
+import { resolveApiBaseUrl, setConfiguredApiBaseUrl } from '../api/client';
 import { executeProbe } from '../services/apiService.ts';
 
 export interface HealthState {
@@ -32,6 +32,12 @@ export interface RootState {
   url?: string;
 }
 
+export interface ProbeSnapshot {
+  health: HealthState;
+  version: VersionState;
+  root: RootState;
+}
+
 export interface ApiContextType {
   baseUrl: string;
   setBaseUrl: (url: string) => void;
@@ -41,31 +47,33 @@ export interface ApiContextType {
   lastChecked: Date | null;
   isProbing: boolean;
   isChecking: boolean;
-  refreshProbes: () => Promise<void>;
+  refreshProbes: () => Promise<ProbeSnapshot | null>;
   testCustomUrl: (url: string) => Promise<{ ok: boolean; message: string; rttMs: number }>;
   autoRefreshInterval: number | null;
   setAutoRefreshInterval: (ms: number | null) => void;
   pollingInterval: number;
   setPollingInterval: (ms: number) => void;
-  chaosSpike: boolean;
-  setChaosSpike: (val: boolean) => void;
-  canaryFailure: boolean;
-  setCanaryFailure: (val: boolean) => void;
-  resetDemoState: () => void;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
 
+/**
+ * Function: ApiProvider
+ * Purpose: Share the configured API URL and live health probe state with the UI.
+ *
+ * Args:
+ *   children: React subtree that consumes the API context.
+ * Returns:
+ *   The subtree wrapped in an API state provider.
+ * Side effects:
+ *   Probes the API on mount and at the configured refresh interval.
+ */
 export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [baseUrl, setBaseUrlState] = useState<string>(() => resolveApiBaseUrl());
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | null>(10000);
   const [isProbing, setIsProbing] = useState<boolean>(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const probeSequence = useRef(0);
-
-  // Chaos & simulation toggles
-  const [chaosSpike, setChaosSpike] = useState<boolean>(false);
-  const [canaryFailure, setCanaryFailure] = useState<boolean>(false);
 
   const [health, setHealth] = useState<HealthState>({
     status: 'idle',
@@ -97,6 +105,15 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     url: `${baseUrl}/`,
   });
 
+  /**
+   * Function: setBaseUrl
+   * Purpose: Apply a new API base URL and mark its probes as loading.
+   *
+   * Args:
+   *   url: API origin entered in Settings.
+   * Side effects:
+   *   Stores the configured origin, invalidates older results, and starts new probes.
+   */
   const setBaseUrl = (url: string) => {
     const cleaned = setConfiguredApiBaseUrl(url);
     probeSequence.current += 1;
@@ -105,12 +122,31 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHealth(prev => ({ ...prev, status: 'loading', url: `${cleaned}/health` }));
     setVersion(prev => ({ ...prev, status: 'loading', url: `${cleaned}/version` }));
     setRoot(prev => ({ ...prev, status: 'loading', url: `${cleaned}/` }));
+    void refreshProbes();
   };
 
+  /**
+   * Function: setPollingInterval
+   * Purpose: Set or disable periodic health checks.
+   *
+   * Args:
+   *   ms: Refresh interval in milliseconds; non-positive values disable polling.
+   * Side effects:
+   *   Updates the interval consumed by the refresh effect.
+   */
   const setPollingInterval = (ms: number) => {
     setAutoRefreshInterval(ms > 0 ? ms : null);
   };
 
+  /**
+   * Function: refreshProbes
+   * Purpose: Fetch health, version, and root status from the configured API.
+   *
+   * Returns:
+   *   The latest probe states, or null when a newer probe superseded this request.
+   * Side effects:
+   *   Updates probe results and the last-checked time; stale responses are ignored.
+   */
   const refreshProbes = useCallback(async () => {
     const sequence = ++probeSequence.current;
     const probeBaseUrl = resolveApiBaseUrl();
@@ -125,9 +161,9 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       executeProbe(probeBaseUrl, '/'),
     ]);
 
-    if (sequence !== probeSequence.current) return;
+    if (sequence !== probeSequence.current) return null;
 
-    setHealth({
+    const healthState: HealthState = {
       status: healthRes.ok ? 'success' : 'error',
       data: healthRes.data,
       error: healthRes.error || null,
@@ -135,9 +171,9 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       responseTimeMs: healthRes.rttMs,
       httpStatus: healthRes.status,
       url: `${probeBaseUrl}/health`,
-    });
+    };
 
-    setVersion({
+    const versionState: VersionState = {
       status: versionRes.ok ? 'success' : 'error',
       data: versionRes.data,
       error: versionRes.error || null,
@@ -145,9 +181,9 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       responseTimeMs: versionRes.rttMs,
       httpStatus: versionRes.status,
       url: `${probeBaseUrl}/version`,
-    });
+    };
 
-    setRoot({
+    const rootState: RootState = {
       status: rootRes.ok ? 'success' : 'error',
       data: rootRes.data,
       error: rootRes.error || null,
@@ -155,12 +191,28 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       responseTimeMs: rootRes.rttMs,
       httpStatus: rootRes.status,
       url: `${probeBaseUrl}/`,
-    });
+    };
+
+    setHealth(healthState);
+    setVersion(versionState);
+    setRoot(rootState);
 
     setLastChecked(new Date());
     setIsProbing(false);
+    return { health: healthState, version: versionState, root: rootState };
   }, []);
 
+  /**
+   * Function: testCustomUrl
+   * Purpose: Check whether a candidate API origin responds to its health route.
+   *
+   * Args:
+   *   url: Candidate API origin to probe.
+   * Returns:
+   *   Connection status, a readable result message, and measured round-trip time.
+   * Side effects:
+   *   Sends one health request without changing the configured API origin.
+   */
   const testCustomUrl = async (url: string) => {
     const target = resolveApiBaseUrl(url);
     const res = await executeProbe(target, '/health', 3000);
@@ -170,15 +222,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ok: false, message: res.error || 'Connection failed', rttMs: res.rttMs };
   };
 
-  const resetDemoState = () => {
-    setChaosSpike(false);
-    setCanaryFailure(false);
-    setAutoRefreshInterval(10000);
-    setBaseUrlState(resetConfiguredApiBaseUrl());
-    refreshProbes();
-  };
-
-  // Initial probe on mount
+  // Probe the active origin on mount. setBaseUrl triggers later probes directly.
   useEffect(() => {
     refreshProbes();
   }, [refreshProbes]);
@@ -209,11 +253,6 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAutoRefreshInterval,
         pollingInterval: autoRefreshInterval ?? 0,
         setPollingInterval,
-        chaosSpike,
-        setChaosSpike,
-        canaryFailure,
-        setCanaryFailure,
-        resetDemoState,
       }}
     >
       {children}
@@ -221,6 +260,15 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 };
 
+/**
+ * Function: useApi
+ * Purpose: Read the API provider state from a React component.
+ *
+ * Returns:
+ *   The current API context value.
+ * Throws:
+ *   Error when called outside an ApiProvider.
+ */
 export const useApi = () => {
   const context = useContext(ApiContext);
   if (!context) {

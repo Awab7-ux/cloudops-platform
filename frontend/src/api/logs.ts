@@ -12,6 +12,15 @@ export interface LogQuery {
   until?: string;
 }
 
+/**
+ * Function: queryString
+ * Purpose: Encode log pagination and filters as URL query parameters.
+ *
+ * Args:
+ *   query: Pagination and optional level, application, deployment, and time filters.
+ * Returns:
+ *   URL-encoded query parameters without a leading question mark.
+ */
 function queryString(query: LogQuery): string {
   const params = new URLSearchParams({
     limit: String(query.limit),
@@ -25,10 +34,25 @@ function queryString(query: LogQuery): string {
   return params.toString();
 }
 
+/**
+ * Function: listLogs
+ * Purpose: Retrieve a filtered, paginated global log page.
+ * @param query Pagination and optional log filters.
+ * @returns A validated log page.
+ * @throws ApiError when the request fails or the response is invalid.
+ */
 export function listLogs(query: LogQuery): Promise<LogPage> {
   return request<LogPage>(`/logs?${queryString(query)}`, {}, isLogPage);
 }
 
+/**
+ * Function: listApplicationLogs
+ * Purpose: Retrieve logs scoped to one application.
+ * @param applicationId Parent application identifier.
+ * @param query Pagination and optional log filters.
+ * @returns A validated log page.
+ * @throws ApiError when the request fails or the response is invalid.
+ */
 export function listApplicationLogs(
   applicationId: string,
   query: LogQuery,
@@ -40,6 +64,14 @@ export function listApplicationLogs(
   );
 }
 
+/**
+ * Function: listDeploymentLogs
+ * Purpose: Retrieve logs scoped to one deployment.
+ * @param deploymentId Deployment identifier.
+ * @param query Pagination and optional log filters.
+ * @returns A validated log page.
+ * @throws ApiError when the request fails or the response is invalid.
+ */
 export function listDeploymentLogs(
   deploymentId: string,
   query: LogQuery,
@@ -51,6 +83,14 @@ export function listDeploymentLogs(
   );
 }
 
+/**
+ * Function: createApplicationLog
+ * Purpose: Append a log record to an application.
+ * @param applicationId Parent application identifier.
+ * @param body Log fields accepted by the backend create schema.
+ * @returns The validated created log record.
+ * @throws ApiError when validation, transport, or response parsing fails.
+ */
 export function createApplicationLog(
   applicationId: string,
   body: LogCreate,

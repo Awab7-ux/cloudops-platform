@@ -1,10 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { listAlerts } from '../api/alerts';
-import type { AlertRecord } from '../api/types';
+import type { AlertRecord, AlertSeverity, AlertType } from '../api/types';
 
+const ALERT_PAGE_SIZE = 25;
+
+/**
+ * Function: AlertsPage
+ * Purpose: Browse the backend-derived alert feed and explain unsupported workflows.
+ *
+ * Returns:
+ *   The active alert list, filters, pagination, and unavailable tab states.
+ * Side effects:
+ *   Fetches alert pages whenever filters, pagination, or refresh state changes.
+ */
 export const AlertsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'active' | 'playbooks' | 'channels' | 'history'>('active');
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(ALERT_PAGE_SIZE);
+  const [offset, setOffset] = useState(0);
+  const [severityFilter, setSeverityFilter] = useState<'all' | AlertSeverity>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | AlertType>('all');
   const [alertsState, setAlertsState] = useState<'loading' | 'success' | 'error'>('loading');
   const [alertsError, setAlertsError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -14,32 +30,43 @@ export const AlertsPage: React.FC = () => {
     let active = true;
     setAlertsState('loading');
     setAlertsError('');
-    void listAlerts({ limit: 200, offset: 0 })
+    void listAlerts({
+      limit: pageSize,
+      offset,
+      ...(severityFilter === 'all' ? {} : { severity: severityFilter }),
+      ...(typeFilter === 'all' ? {} : { type: typeFilter }),
+    })
       .then(result => {
         if (!active) return;
         setAlerts(result.items);
+        setTotal(result.total);
         setAlertsState('success');
       })
       .catch((error: unknown) => {
         if (!active) return;
         setAlerts([]);
+        setTotal(0);
         setAlertsError(error instanceof Error ? error.message : 'Unable to load alerts.');
         setAlertsState('error');
       });
     return () => { active = false; };
-  }, [refresh]);
+  }, [offset, pageSize, refresh, severityFilter, typeFilter]);
 
   const alertCountLabel = alertsState === 'loading'
     ? 'Loading…'
     : alertsState === 'error'
       ? 'Unavailable'
-      : String(alerts.length);
+      : String(total);
   const visibleAlerts = alerts;
-  const alertTitle = (alert: AlertRecord) => ({
+
+  /** Function: alertTitle. Purpose: Map an alert type to its UI title. */
+  const alertTitle = (alert: AlertRecord): string => ({
     deployment_failed: 'Deployment failed',
     deployment_stuck: 'Deployment stuck',
     error_log_spike: 'Error log spike',
   })[alert.type];
+  const currentPage = Math.floor(offset / pageSize) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -120,6 +147,55 @@ export const AlertsPage: React.FC = () => {
       {/* Tab 1: Active Alerts */}
       {activeTab === 'active' && (
         <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              Severity
+              <select
+                aria-label="Filter alerts by severity"
+                value={severityFilter}
+                onChange={event => {
+                  setSeverityFilter(event.target.value as 'all' | AlertSeverity);
+                  setOffset(0);
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="all">All severities</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              Alert type
+              <select
+                aria-label="Filter alerts by type"
+                value={typeFilter}
+                onChange={event => {
+                  setTypeFilter(event.target.value as 'all' | AlertType);
+                  setOffset(0);
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="all">All types</option>
+                <option value="deployment_failed">Deployment failed</option>
+                <option value="deployment_stuck">Deployment stuck</option>
+                <option value="error_log_spike">Error log spike</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              Results per page
+              <select
+                aria-label="Alerts per page"
+                value={pageSize}
+                onChange={event => {
+                  setPageSize(Number(event.target.value));
+                  setOffset(0);
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                {[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+          </div>
           {alertsState === 'loading' && (
             <div role="status" className="bg-white rounded-xl border border-slate-200 p-6 text-center shadow-xs">Loading alerts…</div>
           )}
@@ -242,6 +318,28 @@ export const AlertsPage: React.FC = () => {
               );
             })
           ) : null}
+          {alertsState === 'success' && total > 0 && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              <span>Showing {offset + 1}–{Math.min(offset + visibleAlerts.length, total)} of {total} alerts</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  aria-label="Previous page"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(value => Math.max(0, value - pageSize))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
+                >Previous</button>
+                <span>Page {currentPage} of {totalPages}</span>
+                <button
+                  type="button"
+                  aria-label="Next page"
+                  disabled={offset + pageSize >= total}
+                  onClick={() => setOffset(value => value + pageSize)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 disabled:opacity-50"
+                >Next</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
