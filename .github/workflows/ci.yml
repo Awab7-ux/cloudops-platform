@@ -53,17 +53,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run frontend tests
+        run: npm test
+
       - name: Lint
         run: npm run lint
 
       - name: Build
         run: npm run build
-
-      - name: Run frontend tests
-        run: npx tsx --test src/utils/telemetry.test.ts
-
-      - name: Run component and API tests
-        run: npm test
 
   infrastructure:
     name: Infrastructure validation
