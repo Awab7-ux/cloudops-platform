@@ -215,7 +215,10 @@ describe('DeploymentsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByRole('option', { name: 'Application app-1' })).toBeInTheDocument();
-    expect(listApplications).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(listApplications).toHaveBeenNthCalledWith(2, { limit: 200, offset: 0 });
+      expect(listApplications).toHaveBeenLastCalledWith({ limit: 200, offset: 0 });
+    });
   });
 
   it('shows the empty deployments state for an application with no deployments', async () => {
